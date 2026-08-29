@@ -4,12 +4,13 @@ Run the API from the repository root with:
 
 ```bash
 uv sync
-DATABASE_URL=sqlite+pysqlite:///./interview-share-canvas.db \
+DATABASE_URL=sqlite+pysqlite:///./data/interview-share-canvas.db \
   uv run uvicorn backend.main:app --reload
 ```
 
 `DATABASE_URL` accepts any SQLAlchemy database URL. SQLite is the default and
-requires no extra service. The schema uses SQLAlchemy's portable column types,
+stores data in `data/interview-share-canvas.db`, and requires no extra service.
+The schema uses SQLAlchemy's portable column types,
 so a future Postgres deployment can use the same persistence layer after adding
 the appropriate DBAPI driver. Tables are created automatically on startup, and
 an empty database is seeded with four demo sessions.

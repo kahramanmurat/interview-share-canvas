@@ -273,7 +273,7 @@ class DatabaseStore:
         public_base_url: str | None = None,
     ) -> None:
         self.database_url = database_url or os.getenv(
-            "DATABASE_URL", "sqlite+pysqlite:///./interview-share-canvas.db"
+            "DATABASE_URL", "sqlite+pysqlite:///./data/interview-share-canvas.db"
         )
         self.engine: Engine = create_engine(
             self.database_url,
