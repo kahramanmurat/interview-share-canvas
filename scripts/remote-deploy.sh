@@ -28,6 +28,7 @@ if ! grep -q "UUID=${DATA_UUID}" /etc/fstab; then
   echo "UUID=${DATA_UUID} /data xfs defaults,nofail 0 2" >> /etc/fstab
 fi
 mountpoint --quiet /data || mount /data
+chown -R 10001:10001 /data
 
 REGISTRY_HOST="${IMAGE_URI%%/*}"
 aws ecr get-login-password --region "${AWS_REGION}" | docker login --username AWS --password-stdin "${REGISTRY_HOST}"
@@ -37,6 +38,6 @@ docker run --detach \
   --name interview-share-canvas \
   --restart unless-stopped \
   --publish 80:8091 \
-  --volume /data:/data \
+  --volume /data:/data:Z \
   --env "PUBLIC_BASE_URL=${PUBLIC_BASE_URL}" \
   "${IMAGE_URI}"

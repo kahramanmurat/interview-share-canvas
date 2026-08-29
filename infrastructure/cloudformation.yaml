@@ -194,6 +194,7 @@ Resources:
             echo "UUID=$DATA_UUID /data xfs defaults,nofail 0 2" >> /etc/fstab
           fi
           mount /data
+          chown -R 10001:10001 /data
 
           aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.${AWS::URLSuffix}
           IMAGE_URI="${ContainerRepository.RepositoryUri}:${ImageTag}"
@@ -214,7 +215,7 @@ Resources:
             --name interview-share-canvas \
             --restart unless-stopped \
             --publish 80:8091 \
-            --volume /data:/data \
+            --volume /data:/data:Z \
             --env PUBLIC_BASE_URL="http://$PUBLIC_IP" \
             "$IMAGE_URI"
 
