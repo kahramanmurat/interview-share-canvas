@@ -47,6 +47,7 @@ collaboration tokens are held in memory for the lifetime of the page.
 | `api.startSession(id)` | `POST /v1/sessions/{id}/start` | §6.1 |
 | `api.endSession(id)` | `POST /v1/sessions/{id}/end` | §5.4 |
 | `api.duplicateSession(id)` | `POST /v1/sessions/{id}/duplicate` | §6.10 |
+| `api.deleteSession(id)` | `DELETE /v1/sessions/{id}` | App extension |
 | `api.archiveSession(id)` | `PATCH /v1/sessions/{id}` | §6.10 |
 | `api.createGuestLink(id, opts)` | `POST /v1/sessions/{id}/guest-links` | §6.1, §13 |
 | `api.revokeGuestLink(id, linkId)` | `DELETE /v1/sessions/{id}/guest-links/{linkId}` | §6.9 |

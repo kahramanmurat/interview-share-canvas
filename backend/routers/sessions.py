@@ -166,6 +166,44 @@ def duplicate_session(
         return store.public_session(duplicate)
 
 
+@router.delete("/{id}", response_model=OkResponse, operation_id="deleteSession")
+async def delete_session(
+    id: str,
+    principal: Principal = Depends(current_user),
+    store: InMemoryStore = Depends(get_store),
+) -> OkResponse:
+    """Permanently delete an interview and its dependent in-memory records."""
+
+    with store.lock:
+        require_owner(store, id, principal)
+        connections = list(store.rooms.pop(id, set()))
+        participant_ids = {
+            participant_id
+            for participant_id, participant in store.participants.items()
+            if participant.session_id == id
+        }
+        for participant_id in participant_ids:
+            store.participants.pop(participant_id, None)
+        for link_id, link in list(store.guest_links.items()):
+            if link.session_id == id:
+                store.guest_links.pop(link_id, None)
+        for token_hash, token in list(store.collab_tokens.items()):
+            if token.session_id == id or token.participant_id in participant_ids:
+                store.collab_tokens.pop(token_hash, None)
+        store.audit[:] = [event for event in store.audit if event.session_id != id]
+        store.presence.pop(id, None)
+        store.canvases.pop(id, None)
+        store.sessions.pop(id, None)
+
+    for connection in connections:
+        try:
+            await connection.send_json({"type": "session_deleted"})
+            await connection.close(code=1000, reason="This interview was deleted.")
+        except Exception:
+            pass
+    return OkResponse()
+
+
 @router.delete(
     "/{id}/participants/{participantId}",
     response_model=OkResponse,

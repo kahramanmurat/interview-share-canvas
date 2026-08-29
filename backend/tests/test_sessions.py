@@ -86,3 +86,38 @@ def test_archive_and_audit(client, owner_token):
     )
     assert audit.status_code == 200
     assert all("action" in event and "at" in event for event in audit.json())
+
+
+def test_only_owner_can_delete_session_and_related_records(client, app, owner_token):
+    live = get_live_session(client, owner_token)
+    session_id = live["id"]
+    other = client.post(
+        "/v1/auth/magic-link",
+        json={"email": "other-interviewer@example.com"},
+    )
+    other_token = other.headers["x-session-token"]
+
+    forbidden = client.delete(
+        f"/v1/sessions/{session_id}",
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    assert forbidden.status_code == 403
+
+    deleted = client.delete(
+        f"/v1/sessions/{session_id}",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert deleted.status_code == 200
+    assert deleted.json() == {"ok": True}
+    assert session_id not in app.state.store.sessions
+    assert session_id not in app.state.store.canvases
+    assert not any(
+        participant.session_id == session_id
+        for participant in app.state.store.participants.values()
+    )
+
+    missing = client.get(
+        f"/v1/sessions/{session_id}",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert missing.status_code == 404

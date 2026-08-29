@@ -81,6 +81,7 @@ export const api = {
   startSession: (id) => request(`/v1/sessions/${encodeURIComponent(id)}/start`, { method: 'POST' }),
   endSession: (id) => request(`/v1/sessions/${encodeURIComponent(id)}/end`, { method: 'POST' }),
   duplicateSession: (id) => request(`/v1/sessions/${encodeURIComponent(id)}/duplicate`, { method: 'POST' }),
+  deleteSession: (id) => request(`/v1/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   archiveSession: (id) => request(`/v1/sessions/${encodeURIComponent(id)}`, {
     method: 'PATCH', body: { state: 'archived' },
   }),

@@ -99,6 +99,7 @@
                     <div style="display: flex; gap: 4px; justify-content: flex-end;">
                       <button class="btn btn-secondary" style="font-size: 12px; padding: 5px 10px;" onClick="{{ row.open }}">{{ row.openLabel }}</button>
                       <button class="btn btn-secondary" style="font-size: 12px; padding: 5px 10px;" onClick="{{ row.duplicate }}">Duplicate</button>
+                      <button class="btn btn-ghost" style="font-size: 12px; padding: 5px 10px; color: var(--color-accent);" onClick="{{ row.remove }}">Delete</button>
                     </div>
                   </td>
                 </tr>
@@ -1176,6 +1177,16 @@ class Component extends DCLogic {
           else this.openSession(row);
         },
         duplicate: async () => { await s.api.duplicateSession(row.id); this.flash('Duplicated as a new draft.'); this.loadSessions(); },
+        remove: async () => {
+          if (!window.confirm('Permanently delete “' + row.title + '”? This cannot be undone.')) return;
+          try {
+            await s.api.deleteSession(row.id);
+            this.flash('Interview deleted.');
+            this.loadSessions();
+          } catch (error) {
+            this.flash(error.message);
+          }
+        },
       })),
       goCreate: () => this.setState({ screen: 'create', error: '' }),
       goDashboard: () => { this.setState({ screen: 'dashboard' }); this.loadSessions(); },
