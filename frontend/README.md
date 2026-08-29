@@ -22,6 +22,19 @@ npm run build
 The build is written to `frontend/dist`. The repository `Dockerfile` copies that
 directory into the Python runtime image, where FastAPI serves it alongside the API.
 
+Run the container with a local SQLite data directory:
+
+```bash
+mkdir -p data
+docker build -t interview-share-canvas .
+docker run --rm -p 8091:8091 \
+  --mount type=bind,source="$(pwd)/data",target=/data \
+  interview-share-canvas
+```
+
+The updated database remains available at `data/interview-share-canvas.db` after
+the container stops. Set `DATABASE_URL` to override this location.
+
 ## Files
 
 | File | What it is |
