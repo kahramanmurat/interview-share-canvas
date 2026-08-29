@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const composeFile = resolve(repositoryRoot, "docker-compose.yaml");
-const composeProject = "interview-share-canvas-e2e";
+const composeProject = process.env.E2E_COMPOSE_PROJECT || "interview-share-canvas-e2e";
 const appPort = "18091";
 const composeEnvironment = { ...process.env, APP_PORT: appPort };
 const composeArguments = ["compose", "-p", composeProject, "-f", composeFile];
@@ -43,6 +43,11 @@ async function waitForApplication() {
 }
 
 export default async function globalSetup() {
+  if (process.env.E2E_REUSE_COMPOSE === "1") {
+    await waitForApplication();
+    return;
+  }
+
   cleanUp();
   try {
     compose("up", "--build", "--detach", "--wait");

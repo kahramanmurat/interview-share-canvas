@@ -12,6 +12,12 @@ STACK_NAME="${STACK_NAME:-interview-share-canvas}"
 INSTANCE_TYPE="${INSTANCE_TYPE:-t3.micro}"
 ALLOWED_HTTP_CIDR="${ALLOWED_HTTP_CIDR:-0.0.0.0/0}"
 IMAGE_TAG="${IMAGE_TAG:-$(git -C "${PROJECT_DIRECTORY}" rev-parse --short=12 HEAD)}"
+CLOUDFORMATION_ROLE_ARN="${CLOUDFORMATION_ROLE_ARN:-}"
+
+CLOUDFORMATION_ROLE_ARGUMENTS=()
+if [[ -n "${CLOUDFORMATION_ROLE_ARN}" ]]; then
+  CLOUDFORMATION_ROLE_ARGUMENTS=(--role-arn "${CLOUDFORMATION_ROLE_ARN}")
+fi
 
 AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 VPC_ID="${VPC_ID:-$(aws ec2 describe-vpcs --region "${AWS_REGION}" --filters Name=is-default,Values=true --query 'Vpcs[0].VpcId' --output text)}"
@@ -31,6 +37,7 @@ if ! aws cloudformation describe-stacks --region "${AWS_REGION}" --stack-name "$
     --stack-name "${STACK_NAME}" \
     --template-file "${TEMPLATE_FILE}" \
     --capabilities CAPABILITY_IAM \
+    "${CLOUDFORMATION_ROLE_ARGUMENTS[@]}" \
     --parameter-overrides \
       DeploymentMode=Bootstrap \
       VpcId="${VPC_ID}" \
@@ -52,6 +59,7 @@ aws cloudformation deploy \
   --stack-name "${STACK_NAME}" \
   --template-file "${TEMPLATE_FILE}" \
   --capabilities CAPABILITY_IAM \
+  "${CLOUDFORMATION_ROLE_ARGUMENTS[@]}" \
   --parameter-overrides \
     DeploymentMode=Deploy \
     ImageTag="${IMAGE_TAG}" \

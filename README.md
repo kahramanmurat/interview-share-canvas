@@ -179,6 +179,41 @@ Run the backend tests:
 uv run pytest
 ```
 
+Run the frontend build and Node tests:
+
+```bash
+npm --prefix frontend ci
+npm --prefix frontend test
+```
+
+## CI/CD
+
+`.github/workflows/ci-cd.yaml` runs backend and frontend tests in parallel. Once
+both pass, it builds the Docker Compose application and PostgreSQL services,
+runs API integration tests and Playwright collaboration tests against that
+stack, and tears the stack down. Pushes to `main` then deploy through GitHub
+OIDC and verify the deployed `/health` endpoint.
+
+The OIDC roles are bootstrapped once with CloudFormation:
+
+```bash
+aws cloudformation deploy \
+  --region us-east-1 \
+  --stack-name interview-share-canvas-github-oidc \
+  --template-file infrastructure/github-oidc.yaml \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides CreateOidcProvider=false
+```
+
+`CreateOidcProvider=false` reuses an account-level GitHub provider. Use `true`
+only when `token.actions.githubusercontent.com` is not already registered in the
+AWS account. Configure these GitHub Actions repository variables from the stack
+outputs:
+
+- `AWS_REGION`
+- `AWS_ROLE_ARN` from `GitHubRoleArn`
+- `AWS_CLOUDFORMATION_ROLE_ARN` from `CloudFormationRoleArn`
+
 ### End-to-end collaboration test
 
 The Playwright test uses `docker-compose.yaml` to start an isolated application
