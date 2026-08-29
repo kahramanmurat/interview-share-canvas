@@ -1,0 +1,1456 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="modernist.css">
+<script src="https://unpkg.com/lucide@0.454.0/dist/umd/lucide.min.js"></script>
+<style>
+  html, body, #root { height: 100%; }
+  body { overflow: hidden; }
+  a { color: var(--color-accent); }
+  a:hover { color: var(--color-accent-700); }
+  input, textarea, select, button { font-family: var(--font-body); }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--color-neutral-400); }
+</style>
+</helmet>
+
+<div style="height: 100%; display: flex; flex-direction: column; background: var(--color-bg); color: var(--color-text); font-family: var(--font-body); overflow: hidden;">
+
+  <sc-if value="{{ atSignIn }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Sign in" style="flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0;">
+      <div style="background: var(--color-accent); color: var(--color-bg); padding: 48px; display: flex; flex-direction: column; justify-content: space-between;">
+        <div style="font-family: var(--font-heading); font-weight: 800; font-size: 18px; letter-spacing: -0.01em;">NORTHWIND / INTERVIEWS</div>
+        <h1 style="font-size: 60px; line-height: 1.02; letter-spacing: -0.03em; margin: 0; max-width: 12ch;">One canvas. Both sides of the table.</h1>
+        <div style="display: grid; gap: 6px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.85;">
+          <div>Real-time system-design interviews</div>
+          <div>Autosaved · Auditable · Revocable links</div>
+        </div>
+      </div>
+      <div style="padding: 48px; display: flex; flex-direction: column; justify-content: center; max-width: 460px;">
+        <h2 style="font-size: 28px; margin: 0 0 4px;">Sign in</h2>
+        <p class="text-muted" style="font-size: 13px; margin-bottom: 24px;">Interviewers sign in with a magic link. Candidates join from the link you send them.</p>
+        <hr class="hr" style="margin: 0 0 24px;">
+        <div class="field" style="margin-bottom: 16px;">
+          <label for="pf-email">Work email</label>
+          <input id="pf-email" class="input" type="email" placeholder="you@company.com" value="{{ email }}" onChange="{{ onEmail }}">
+        </div>
+        <sc-if value="{{ error }}" hint-placeholder-val="{{ false }}">
+          <div style="border-left: 2px solid var(--color-accent); padding: 8px 12px; background: var(--color-accent-100); color: var(--color-accent-800); font-size: 13px; margin-bottom: 16px;">{{ error }}</div>
+        </sc-if>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button class="btn btn-primary" onClick="{{ doSignIn }}" disabled="{{ busy }}">{{ signInLabel }}</button>
+          <button class="btn btn-ghost" onClick="{{ goLobbyDemo }}">Join as a candidate instead</button>
+        </div>
+        <p class="text-muted" style="font-size: 11px; margin-top: 24px;">Mocked endpoint: <code>POST /v1/auth/magic-link</code></p>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ atDashboard }}" hint-placeholder-val="{{ true }}">
+    <div data-screen-label="Dashboard" style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+      <div class="nav" style="flex: none;">
+        <div class="nav-brand">NORTHWIND / INTERVIEWS</div>
+        <span class="tag tag-neutral">{{ userEmail }}</span>
+        <button class="btn btn-primary" onClick="{{ goCreate }}">{{ newLabel }}</button>
+      </div>
+      <div style="flex: 1; overflow: auto; padding: 32px 32px 96px;">
+        <div style="display: flex; align-items: baseline; gap: 16px; margin-bottom: 4px;">
+          <h1 style="font-size: 42px; margin: 0;">Interviews</h1>
+          <span class="text-muted" style="font-size: 13px;">{{ sessionCountLabel }}</span>
+        </div>
+        <hr class="hr">
+        <sc-if value="{{ loadingSessions }}" hint-placeholder-val="{{ false }}">
+          <div class="text-muted" style="font-size: 13px; padding: 24px 0;">Loading sessions…</div>
+        </sc-if>
+        <sc-if value="{{ hasSessions }}" hint-placeholder-val="{{ true }}">
+          <table class="table">
+            <thead>
+              <tr>
+                <th style="width: 34%;">Title</th>
+                <th style="width: 10%;">State</th>
+                <th style="width: 16%;">Scheduled</th>
+                <th style="width: 18%;">Participants</th>
+                <th style="width: 12%;">Modified</th>
+                <th style="width: 10%;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <sc-for list="{{ sessionRows }}" as="row" hint-placeholder-count="4">
+                <tr>
+                  <td>
+                    <div style="display: flex; flex-direction: column; gap: 2px;">
+                      <a href="#" onClick="{{ row.open }}" style="font-family: var(--font-heading); font-weight: 800; font-size: 15px; color: var(--color-text); text-decoration: none;">{{ row.title }}</a>
+                      <span class="text-muted" style="font-size: 12px;">{{ row.promptShort }}</span>
+                    </div>
+                  </td>
+                  <td><span class="{{ row.stateClass }}">{{ row.state }}</span></td>
+                  <td style="font-size: 13px;">{{ row.scheduled }}</td>
+                  <td style="font-size: 13px;">{{ row.participants }}</td>
+                  <td class="text-muted" style="font-size: 12px;">{{ row.modified }}</td>
+                  <td>
+                    <div style="display: flex; gap: 4px; justify-content: flex-end;">
+                      <button class="btn btn-secondary" style="font-size: 12px; padding: 5px 10px;" onClick="{{ row.open }}">{{ row.openLabel }}</button>
+                      <button class="btn btn-secondary" style="font-size: 12px; padding: 5px 10px;" onClick="{{ row.duplicate }}">Duplicate</button>
+                    </div>
+                  </td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ atCreate }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Create interview" style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+      <div class="nav" style="flex: none;">
+        <div class="nav-brand">NORTHWIND / INTERVIEWS</div>
+        <button class="btn btn-ghost" onClick="{{ goDashboard }}">Cancel</button>
+      </div>
+      <div style="flex: 1; overflow: auto; padding: 32px 32px 96px;">
+        <div style="display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 32px; max-width: 1080px;">
+          <div>
+            <h1 style="font-size: 42px; margin: 0;">New interview</h1>
+            <hr class="hr">
+            <div class="field" style="margin-bottom: 20px;">
+              <label for="pf-title">Title</label>
+              <input id="pf-title" class="input" placeholder="Staff Backend — candidate name" value="{{ formTitle }}" onChange="{{ onFormTitle }}">
+            </div>
+            <div class="field" style="margin-bottom: 20px;">
+              <label for="pf-prompt">Problem statement</label>
+              <textarea id="pf-prompt" class="input" style="min-height: 130px;" placeholder="Design a multi-region rate limiter…" value="{{ formPrompt }}" onChange="{{ onFormPrompt }}"></textarea>
+            </div>
+            <div style="display: flex; gap: 32px; flex-wrap: wrap; margin-bottom: 20px;">
+              <div>
+                <div style="font-size: 12px; margin-bottom: 6px; color: var(--color-neutral-700);">Duration</div>
+                <div class="seg">
+                  <sc-for list="{{ durations }}" as="d" hint-placeholder-count="3">
+                    <label class="seg-opt">
+                      <input type="radio" name="pf-duration" checked="{{ d.checked }}" onChange="{{ d.pick }}">
+                      <span>{{ d.label }}</span>
+                    </label>
+                  </sc-for>
+                </div>
+              </div>
+              <div>
+                <div style="font-size: 12px; margin-bottom: 6px; color: var(--color-neutral-700);">Candidate editing</div>
+                <div class="seg">
+                  <label class="seg-opt">
+                    <input type="radio" name="pf-edit" checked="{{ formEditingOn }}" onChange="{{ setEditingOn }}">
+                    <span>Unlocked</span>
+                  </label>
+                  <label class="seg-opt">
+                    <input type="radio" name="pf-edit" checked="{{ formEditingOff }}" onChange="{{ setEditingOff }}">
+                    <span>Locked at start</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div style="font-size: 12px; margin-bottom: 8px; color: var(--color-neutral-700);">Starting canvas</div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
+              <sc-for list="{{ templates }}" as="t" hint-placeholder-count="2">
+                <div class="card" style="{{ t.style }}" onClick="{{ t.pick }}">
+                  <div class="card-kicker">Template</div>
+                  <div class="card-title">{{ t.name }}</div>
+                  <p class="card-body">{{ t.note }}</p>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="border-left: 2px solid var(--color-divider); padding-left: 24px;">
+            <h6 style="margin-bottom: 12px;">What happens next</h6>
+            <ol class="text-muted" style="font-size: 13px; padding-left: 18px; margin: 0 0 20px; display: grid; gap: 6px;">
+              <li>A draft session and blank canvas are created.</li>
+              <li>You get a high-entropy candidate link you can rotate or revoke.</li>
+              <li>Nothing is visible to the candidate until you send the link.</li>
+            </ol>
+            <hr class="hr">
+            <sc-if value="{{ error }}" hint-placeholder-val="{{ false }}">
+              <div style="border-left: 2px solid var(--color-accent); padding: 8px 12px; background: var(--color-accent-100); color: var(--color-accent-800); font-size: 13px; margin-bottom: 12px;">{{ error }}</div>
+            </sc-if>
+            <button class="btn btn-primary btn-block" onClick="{{ doCreate }}" disabled="{{ busy }}">{{ createLabel }}</button>
+            <p class="text-muted" style="font-size: 11px; margin-top: 16px;">Mocked endpoint: <code>POST /v1/sessions</code></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ atLobby }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Candidate lobby" style="flex: 1; display: grid; place-items: center; padding: 32px; min-height: 0; overflow: auto;">
+      <div style="width: min(520px, 100%);">
+        <div style="font-family: var(--font-heading); font-weight: 800; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-accent);">Northwind / Interviews</div>
+        <h1 style="font-size: 38px; margin: 8px 0 0;">{{ lobbyTitle }}</h1>
+        <p class="text-muted" style="font-size: 13px; margin-top: 6px;">{{ lobbySub }}</p>
+        <hr class="hr">
+        <sc-if value="{{ lobbyError }}" hint-placeholder-val="{{ false }}">
+          <div style="border-left: 2px solid var(--color-accent); padding: 10px 12px; background: var(--color-accent-100); color: var(--color-accent-800); font-size: 13px; margin-bottom: 16px;">{{ lobbyError }}</div>
+        </sc-if>
+        <div class="field" style="margin-bottom: 16px;">
+          <label for="pf-name">Display name</label>
+          <input id="pf-name" class="input" placeholder="The name your interviewer will see" value="{{ lobbyName }}" onChange="{{ onLobbyName }}">
+        </div>
+        <div style="border: 1px solid var(--color-divider); padding: 12px; margin-bottom: 16px; display: grid; gap: 6px;">
+          <div style="font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase;">Before you join</div>
+          <p class="text-muted" style="font-size: 12px; margin: 0;">Everything you draw is saved and reviewable by the interviewing team. Audio and video are not recorded here.</p>
+          <p class="text-muted" style="font-size: 12px; margin: 0;">Use a desktop browser — Chrome, Edge, Firefox or Safari. Phone editing is not supported.</p>
+        </div>
+        <button class="btn btn-primary btn-block" onClick="{{ doJoin }}" disabled="{{ busy }}">{{ joinLabel }}</button>
+        <p class="text-muted" style="font-size: 11px; margin-top: 16px;">Mocked endpoints: <code>GET /v1/join/{token}</code> then <code>POST /v1/join/{token}</code></p>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ atReview }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Ended session review" style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+      <div class="nav" style="flex: none;">
+        <div class="nav-brand">NORTHWIND / INTERVIEWS</div>
+        <button class="btn btn-ghost" onClick="{{ goDashboard }}">All interviews</button>
+      </div>
+      <div style="flex: 1; overflow: auto; padding: 32px 32px 96px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <span class="tag tag-neutral">Ended</span>
+          <span class="text-muted" style="font-size: 12px;">{{ reviewEnded }}</span>
+        </div>
+        <h1 style="font-size: 42px; margin: 8px 0 0;">{{ sessionTitle }}</h1>
+        <hr class="hr">
+        <div style="display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 32px;">
+          <div>
+            <h6>Prompt</h6>
+            <p style="font-size: 15px; max-width: 60ch;">{{ sessionPrompt }}</p>
+            <hr class="hr">
+            <h6>Final snapshot</h6>
+            <div style="border: 1px solid var(--color-divider); background: var(--color-surface); padding: 16px; display: flex; gap: 32px; flex-wrap: wrap;">
+              <sc-for list="{{ reviewStats }}" as="s" hint-placeholder-count="4">
+                <div>
+                  <div style="font-family: var(--font-heading); font-weight: 800; font-size: 28px;">{{ s.value }}</div>
+                  <div class="text-muted" style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;">{{ s.label }}</div>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap;">
+              <button class="btn btn-primary" style="white-space: nowrap;" onClick="{{ openReadOnly }}">Open canvas read-only</button>
+              <button class="btn btn-secondary" style="white-space: nowrap;" onClick="{{ exportJson }}">Export JSON</button>
+              <button class="btn btn-secondary" style="white-space: nowrap;" onClick="{{ duplicateCurrent }}">Duplicate as template</button>
+            </div>
+          </div>
+          <div style="border-left: 2px solid var(--color-divider); padding-left: 24px;">
+            <h6>Participants</h6>
+            <div style="display: grid; gap: 6px; font-size: 13px; margin-bottom: 20px;">
+              <sc-for list="{{ reviewParticipants }}" as="p" hint-placeholder-count="2">
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--color-divider); padding-bottom: 4px;">
+                  <span>{{ p.name }}</span>
+                  <span class="text-muted" style="font-size: 12px;">{{ p.role }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <h6>Audit trail</h6>
+            <div style="display: grid; gap: 4px; font-size: 12px;">
+              <sc-for list="{{ reviewAudit }}" as="a" hint-placeholder-count="3">
+                <div style="display: flex; justify-content: space-between; gap: 12px;">
+                  <span style="font-family: ui-monospace, monospace;">{{ a.action }}</span>
+                  <span class="text-muted">{{ a.at }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ atCanvas }}" hint-placeholder-val="{{ false }}">
+    <div data-screen-label="Live canvas" style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
+
+      <div style="flex: none; display: flex; align-items: center; gap: 16px; padding: 8px 12px; border-bottom: 2px solid var(--color-divider); background: var(--color-bg);">
+        <button class="btn btn-ghost" style="padding-inline: 4px;" onClick="{{ leaveCanvas }}">{{ backLabel }}</button>
+        <div style="display: flex; flex-direction: column; min-width: 0;">
+          <div style="font-family: var(--font-heading); font-weight: 800; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ sessionTitle }}</div>
+          <div style="display: flex; gap: 8px; align-items: center; font-size: 11px; color: var(--color-neutral-700);">
+            <span>{{ connLabel }}</span>
+            <span>·</span>
+            <span>{{ saveLabel }}</span>
+          </div>
+        </div>
+        <div style="width: 10px; height: 10px; background: {{ connColor }}; flex: none;"></div>
+        <div style="font-family: var(--font-heading); font-weight: 800; font-size: 15px; letter-spacing: 0.02em; padding: 2px 8px; border: 1px solid var(--color-divider);">{{ timerLabel }}</div>
+        <div style="display: flex; gap: 6px; margin-left: auto; align-items: center;">
+          <sc-for list="{{ roster }}" as="p" hint-placeholder-count="2">
+            <div title="{{ p.title }}" style="{{ p.chipStyle }}">{{ p.initials }}</div>
+          </sc-for>
+        </div>
+        <span class="{{ lockTagClass }}">{{ lockLabel }}</span>
+        <sc-if value="{{ isOwner }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <button class="btn btn-secondary" style="font-size: 12px; padding: 6px 10px;" onClick="{{ toggleLock }}">{{ lockButtonLabel }}</button>
+            <button class="btn btn-secondary" style="font-size: 12px; padding: 6px 10px;" onClick="{{ openShare }}">Share</button>
+            <button class="btn btn-primary" style="font-size: 12px; padding: 6px 10px; background: var(--color-accent-700);" onClick="{{ confirmEnd }}">End</button>
+          </div>
+        </sc-if>
+      </div>
+
+      <div style="flex: 1; display: flex; min-height: 0;">
+
+        <div style="flex: none; width: 52px; border-right: 2px solid var(--color-divider); display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0; background: var(--color-bg);">
+          <sc-for list="{{ tools }}" as="t" hint-placeholder-count="8">
+            <button class="btn btn-icon" title="{{ t.title }}" style="{{ t.style }}" onClick="{{ t.pick }}">{{ t.icon }}</button>
+          </sc-for>
+          <sc-if value="{{ canDraw }}" hint-placeholder-val="{{ true }}">
+            <div style="display: flex; flex-direction: column; align-items: center;">
+              <div style="width: 24px; height: 2px; background: var(--color-divider); margin: 6px 0;"></div>
+              <button class="btn btn-icon" title="Component library" style="{{ libStyle }}" onClick="{{ toggleLibrary }}">{{ libIcon }}</button>
+            </div>
+          </sc-if>
+        </div>
+
+        <sc-if value="{{ libraryOpen }}" hint-placeholder-val="{{ true }}">
+          <div style="flex: none; width: 208px; border-right: 2px solid var(--color-divider); overflow: auto; padding: 12px; background: var(--color-bg);">
+            <h6 style="margin-bottom: 8px;">Components</h6>
+            <sc-if value="{{ armedType }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size: 11px; background: var(--color-accent-100); color: var(--color-accent-800); padding: 6px 8px; margin-bottom: 10px; border-left: 2px solid var(--color-accent);">Click the canvas to place {{ armedLabel }}</div>
+            </sc-if>
+            <sc-for list="{{ palette }}" as="cat" hint-placeholder-count="6">
+              <div style="margin-bottom: 14px;">
+                <div style="font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-neutral-700); border-bottom: 1px solid var(--color-divider); padding-bottom: 4px; margin-bottom: 6px;">{{ cat.name }}</div>
+                <div style="display: grid; gap: 2px;">
+                  <sc-for list="{{ cat.items }}" as="it" hint-placeholder-count="4">
+                    <button style="{{ it.style }}" onClick="{{ it.arm }}" title="{{ it.label }}">
+                      <span style="display: flex; width: 18px; justify-content: center; flex: none;">{{ it.icon }}</span>
+                      <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ it.label }}</span>
+                    </button>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <div style="flex: 1; position: relative; min-width: 0; overflow: hidden;">
+          <div style="{{ surfaceStyle }}" onPointerDown="{{ onSurfaceDown }}" onPointerMove="{{ onSurfaceMove }}" onPointerUp="{{ onSurfaceUp }}" onWheel="{{ onWheel }}" ref="{{ surfaceRef }}">
+            <div style="{{ worldStyle }}">
+              <svg style="position: absolute; left: -4000px; top: -4000px; width: 12000px; height: 12000px; overflow: visible; pointer-events: none;" viewBox="-4000 -4000 12000 12000">
+                <defs>
+                  <marker id="pf-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#201e1d"></path>
+                  </marker>
+                  <marker id="pf-arrow-sel" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#ec3013"></path>
+                  </marker>
+                </defs>
+                <sc-for list="{{ edgeViews }}" as="e" hint-placeholder-count="0">
+                  <g>
+                    <path d="{{ e.d }}" fill="none" stroke="{{ e.stroke }}" stroke-width="{{ e.width }}" stroke-dasharray="{{ e.dash }}" marker-end="{{ e.markerEnd }}" style="pointer-events: stroke; cursor: pointer;" onPointerDown="{{ e.onDown }}"></path>
+                    <path d="{{ e.d }}" fill="none" stroke="transparent" stroke-width="14" style="pointer-events: stroke; cursor: pointer;" onPointerDown="{{ e.onDown }}"></path>
+                    <text x="{{ e.lx }}" y="{{ e.ly }}" font-size="11" font-family="Archivo, sans-serif" fill="#605d5d" text-anchor="middle" style="paint-order: stroke; stroke: #f3f2f2; stroke-width: 4px;">{{ e.label }}</text>
+                  </g>
+                </sc-for>
+                <sc-for list="{{ strokeViews }}" as="s" hint-placeholder-count="0">
+                  <path d="{{ s.d }}" fill="none" stroke="{{ s.color }}" stroke-width="{{ s.width }}" stroke-opacity="{{ s.opacity }}" stroke-linecap="round" stroke-linejoin="round" style="pointer-events: stroke; cursor: crosshair;" onPointerDown="{{ s.onDown }}"></path>
+                </sc-for>
+                <sc-if value="{{ draftEdge }}" hint-placeholder-val="{{ false }}">
+                  <path d="{{ draftEdgeD }}" fill="none" stroke="#ec3013" stroke-width="1.5" stroke-dasharray="5 4"></path>
+                </sc-if>
+              </svg>
+
+              <sc-for list="{{ nodeViews }}" as="n" hint-placeholder-count="0">
+                <div style="{{ n.box }}" onPointerDown="{{ n.onDown }}" onDoubleClick="{{ n.onEdit }}">
+                  <div style="display: flex; align-items: flex-start; gap: 6px; pointer-events: none;">
+                    <span style="{{ n.iconStyle }}">{{ n.icon }}</span>
+                    <sc-if value="{{ n.notEditing }}" hint-placeholder-val="{{ true }}">
+                      <span style="{{ n.labelStyle }}">{{ n.label }}</span>
+                    </sc-if>
+                  </div>
+                  <sc-if value="{{ n.editing }}" hint-placeholder-val="{{ false }}">
+                    <input class="input" style="font-size: 13px; min-height: 26px; pointer-events: auto;" value="{{ n.label }}" onChange="{{ n.onLabel }}" onBlur="{{ stopEditing }}" onKeyDown="{{ onLabelKey }}" autoFocus="{{ true }}">
+                  </sc-if>
+                  <sc-if value="{{ n.showHandle }}" hint-placeholder-val="{{ false }}">
+                    <div style="position: absolute; right: -5px; bottom: -5px; width: 10px; height: 10px; background: var(--color-accent); cursor: nwse-resize;" onPointerDown="{{ n.onResize }}"></div>
+                  </sc-if>
+                  <sc-if value="{{ n.showOwnerTag }}" hint-placeholder-val="{{ false }}">
+                    <div style="{{ n.ownerTagStyle }}">{{ n.ownerTag }}</div>
+                  </sc-if>
+                </div>
+              </sc-for>
+
+              <sc-for list="{{ cursorViews }}" as="c" hint-placeholder-count="0">
+                <div style="{{ c.style }}">
+                  <div style="width: 2px; height: 14px; background: {{ c.color }};"></div>
+                  <div style="{{ c.tagStyle }}">{{ c.name }}</div>
+                </div>
+              </sc-for>
+            </div>
+
+            <sc-if value="{{ marquee }}" hint-placeholder-val="{{ false }}">
+              <div style="{{ marqueeStyle }}"></div>
+            </sc-if>
+          </div>
+
+          <div style="position: absolute; left: 12px; bottom: 12px; display: flex; gap: 6px; align-items: center; background: var(--color-bg); border: 1px solid var(--color-divider); padding: 4px;">
+            <button class="btn btn-icon" title="Zoom out" onClick="{{ zoomOut }}">{{ iconZoomOut }}</button>
+            <div style="font-size: 12px; width: 44px; text-align: center; font-variant-numeric: tabular-nums;">{{ zoomLabel }}</div>
+            <button class="btn btn-icon" title="Zoom in" onClick="{{ zoomIn }}">{{ iconZoomIn }}</button>
+            <div style="width: 1px; height: 20px; background: var(--color-divider);"></div>
+            <button class="btn btn-icon" title="Zoom to fit" onClick="{{ zoomToFit }}">{{ iconFit }}</button>
+            <div style="width: 1px; height: 20px; background: var(--color-divider);"></div>
+            <button class="btn btn-icon" title="Undo" onClick="{{ undo }}" disabled="{{ noUndo }}">{{ iconUndo }}</button>
+            <button class="btn btn-icon" title="Redo" onClick="{{ redo }}" disabled="{{ noRedo }}">{{ iconRedo }}</button>
+          </div>
+
+          <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+            <div style="position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--color-neutral-900); color: var(--color-neutral-100); font-size: 13px; padding: 8px 14px; box-shadow: var(--shadow-md); max-width: 420px;">{{ toast }}</div>
+          </sc-if>
+        </div>
+
+        <div style="flex: none; width: 256px; border-left: 2px solid var(--color-divider); overflow: auto; padding: 12px; background: var(--color-bg);">
+          <sc-if value="{{ hasSelection }}" hint-placeholder-val="{{ false }}">
+            <div>
+              <h6 style="margin-bottom: 8px;">{{ selectionTitle }}</h6>
+              <sc-if value="{{ singleNode }}" hint-placeholder-val="{{ false }}">
+                <div style="display: grid; gap: 12px;">
+                  <div class="field">
+                    <label for="pf-lbl">Label</label>
+                    <input id="pf-lbl" class="input" value="{{ selLabel }}" onChange="{{ onSelLabel }}">
+                  </div>
+                  <div class="field">
+                    <label for="pf-desc">Description</label>
+                    <textarea id="pf-desc" class="input" style="min-height: 60px; font-size: 13px;" placeholder="Capacity, consistency, trade-offs…" value="{{ selDesc }}" onChange="{{ onSelDesc }}"></textarea>
+                  </div>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    <div class="field"><label for="pf-w">Width</label><input id="pf-w" class="input" type="number" value="{{ selW }}" onChange="{{ onSelW }}"></div>
+                    <div class="field"><label for="pf-h">Height</label><input id="pf-h" class="input" type="number" value="{{ selH }}" onChange="{{ onSelH }}"></div>
+                  </div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ singleEdge }}" hint-placeholder-val="{{ false }}">
+                <div style="display: grid; gap: 12px;">
+                  <div class="field">
+                    <label for="pf-elabel">Connector label</label>
+                    <input id="pf-elabel" class="input" placeholder="HTTPS, events, read/write" value="{{ selEdgeLabel }}" onChange="{{ onEdgeLabel }}">
+                  </div>
+                  <div>
+                    <div style="font-size: 12px; margin-bottom: 6px; color: var(--color-neutral-700);">Route</div>
+                    <div class="seg">
+                      <sc-for list="{{ edgeStyles }}" as="es" hint-placeholder-count="3">
+                        <label class="seg-opt">
+                          <input type="radio" name="pf-estyle" checked="{{ es.checked }}" onChange="{{ es.pick }}">
+                          <span>{{ es.label }}</span>
+                        </label>
+                      </sc-for>
+                    </div>
+                  </div>
+                  <label class="radio"><input type="checkbox" checked="{{ selEdgeDashed }}" onChange="{{ toggleDashed }}"><span class="dot"></span><span>Dashed</span></label>
+                </div>
+              </sc-if>
+              <sc-if value="{{ canDraw }}" hint-placeholder-val="{{ true }}">
+                <div>
+                  <hr class="hr">
+                  <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                    <button class="btn btn-secondary" style="font-size: 12px;" onClick="{{ duplicateSel }}">Duplicate</button>
+                    <button class="btn btn-secondary" style="font-size: 12px; color: var(--color-accent-700);" onClick="{{ deleteSel }}">Delete</button>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+          <sc-if value="{{ noSelection }}" hint-placeholder-val="{{ true }}">
+            <div>
+              <h6 style="margin-bottom: 8px;">Interview prompt</h6>
+              <p style="font-size: 13px; line-height: 1.5;">{{ sessionPrompt }}</p>
+              <hr class="hr">
+              <h6 style="margin-bottom: 8px;">Participants</h6>
+              <div style="display: grid; gap: 6px; margin-bottom: 16px;">
+                <sc-for list="{{ roster }}" as="p" hint-placeholder-count="2">
+                  <div style="display: flex; align-items: center; gap: 8px; font-size: 13px;">
+                    <div style="{{ p.dotStyle }}"></div>
+                    <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ p.name }}</span>
+                    <span class="text-muted" style="font-size: 11px;">{{ p.role }}</span>
+                    <sc-if value="{{ p.removable }}" hint-placeholder-val="{{ false }}">
+                      <button class="btn btn-ghost" style="font-size: 11px; padding: 0 4px;" onClick="{{ p.remove }}">Remove</button>
+                    </sc-if>
+                  </div>
+                </sc-for>
+              </div>
+              <sc-if value="{{ isPenTool }}" hint-placeholder-val="{{ false }}">
+                <div>
+                  <hr class="hr">
+                  <h6 style="margin-bottom: 8px;">Pen</h6>
+                  <div style="display: flex; gap: 6px; margin-bottom: 10px;">
+                    <sc-for list="{{ penColors }}" as="c" hint-placeholder-count="4">
+                      <button style="{{ c.style }}" title="{{ c.value }}" onClick="{{ c.pick }}"></button>
+                    </sc-for>
+                  </div>
+                  <div class="seg">
+                    <sc-for list="{{ penWidths }}" as="w" hint-placeholder-count="3">
+                      <label class="seg-opt">
+                        <input type="radio" name="pf-pen" checked="{{ w.checked }}" onChange="{{ w.pick }}">
+                        <span>{{ w.label }}</span>
+                      </label>
+                    </sc-for>
+                  </div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ isOwner }}" hint-placeholder-val="{{ false }}">
+                <div>
+                  <hr class="hr">
+                  <h6 style="margin-bottom: 8px;">Session controls</h6>
+                  <div style="display: grid; gap: 6px;">
+                    <button class="btn btn-secondary" style="justify-content: flex-start; font-size: 12px;" onClick="{{ toggleCursors }}">{{ cursorsLabel }}</button>
+                    <button class="btn btn-secondary" style="justify-content: flex-start; font-size: 12px;" onClick="{{ dropConnection }}">Simulate 4s network loss</button>
+                    <button class="btn btn-secondary" style="justify-content: flex-start; font-size: 12px; color: var(--color-accent-700);" onClick="{{ confirmClear }}">Clear canvas…</button>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ dialog }}" hint-placeholder-val="{{ false }}">
+    <div class="dialog-backdrop" onClick="{{ closeDialog }}">
+      <div class="dialog" onClick="{{ stopProp }}">
+        <div class="dialog-title">{{ dialogTitle }}</div>
+        <div class="dialog-body">{{ dialogBody }}</div>
+        <sc-if value="{{ dialogLink }}" hint-placeholder-val="{{ false }}">
+          <div style="display: grid; gap: 8px;">
+            <input class="input" style="font-family: ui-monospace, monospace; font-size: 12px;" readOnly="{{ true }}" value="{{ dialogLink }}">
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button class="btn btn-secondary" style="font-size: 12px;" onClick="{{ copyLink }}">Copy link</button>
+              <button class="btn btn-secondary" style="font-size: 12px;" onClick="{{ rotateLink }}">Rotate</button>
+              <button class="btn btn-secondary" style="font-size: 12px; color: var(--color-accent-700);" onClick="{{ revokeLink }}">Revoke</button>
+            </div>
+            <p class="text-muted" style="font-size: 11px; margin: 0;">128 bits of entropy. Only a hash is stored server-side. Max 10 participants.</p>
+          </div>
+        </sc-if>
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" onClick="{{ closeDialog }}">{{ dialogCancel }}</button>
+          <sc-if value="{{ dialogConfirmLabel }}" hint-placeholder-val="{{ false }}">
+            <button class="btn btn-primary" onClick="{{ dialogConfirm }}">{{ dialogConfirmLabel }}</button>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showDemo }}" hint-placeholder-val="{{ true }}">
+    <div style="position: fixed; right: 12px; bottom: 12px; z-index: 40; background: var(--color-neutral-900); color: var(--color-neutral-100); display: flex; align-items: center; gap: 10px; padding: 6px 8px; font-size: 11px; box-shadow: var(--shadow-lg);">
+      <span style="letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.6;">Demo</span>
+      <div style="display: flex; gap: 2px;">
+        <sc-for list="{{ roleOptions }}" as="r" hint-placeholder-count="2">
+          <button style="{{ r.style }}" onClick="{{ r.pick }}">{{ r.label }}</button>
+        </sc-for>
+      </div>
+      <div style="width: 1px; height: 16px; background: rgba(255,255,255,0.25);"></div>
+      <div style="display: flex; gap: 2px;">
+        <sc-for list="{{ screenJumps }}" as="j" hint-placeholder-count="5">
+          <button style="{{ j.style }}" onClick="{{ j.pick }}">{{ j.label }}</button>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;startScreen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;signin&quot;,&quot;dashboard&quot;,&quot;create&quot;,&quot;lobby&quot;,&quot;canvas&quot;,&quot;review&quot;],&quot;default&quot;:&quot;dashboard&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Prototype&quot;},&quot;demoControls&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Prototype&quot;},&quot;latencyScale&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:1,&quot;min&quot;:0,&quot;max&quot;:3,&quot;step&quot;:0.25,&quot;unit&quot;:&quot;×&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Mock backend&quot;}}">
+const GRID = 24;
+
+const CATALOG = {
+  service: { label: 'Service', icon: 'Box', cat: 'General' },
+  process: { label: 'Process', icon: 'Boxes', cat: 'General' },
+  text: { label: 'Text', icon: 'Type', cat: 'General' },
+  note: { label: 'Sticky note', icon: 'StickyNote', cat: 'General' },
+  boundary: { label: 'Boundary', icon: 'SquareDashed', cat: 'General' },
+  sql: { label: 'Relational DB', icon: 'Database', cat: 'Data' },
+  nosql: { label: 'NoSQL store', icon: 'Layers', cat: 'Data' },
+  cache: { label: 'Cache', icon: 'Zap', cat: 'Data' },
+  blob: { label: 'Object storage', icon: 'HardDrive', cat: 'Data' },
+  warehouse: { label: 'Data warehouse', icon: 'Table', cat: 'Data' },
+  queue: { label: 'Queue', icon: 'ListOrdered', cat: 'Messaging' },
+  stream: { label: 'Event stream', icon: 'Rss', cat: 'Messaging' },
+  pubsub: { label: 'Pub/sub broker', icon: 'Radio', cat: 'Messaging' },
+  browser: { label: 'Browser client', icon: 'Monitor', cat: 'Network' },
+  mobile: { label: 'Mobile client', icon: 'Smartphone', cat: 'Network' },
+  gateway: { label: 'API gateway', icon: 'Network', cat: 'Network' },
+  lb: { label: 'Load balancer', icon: 'Shuffle', cat: 'Network' },
+  cdn: { label: 'CDN', icon: 'Globe', cat: 'Network' },
+  external: { label: 'External API', icon: 'ExternalLink', cat: 'Network' },
+  server: { label: 'Server', icon: 'Server', cat: 'Compute' },
+  worker: { label: 'Worker', icon: 'Cog', cat: 'Compute' },
+  lambda: { label: 'Function', icon: 'Zap', cat: 'Compute' },
+  cluster: { label: 'Container cluster', icon: 'Container', cat: 'Compute' },
+  llm: { label: 'LLM / model', icon: 'Sparkles', cat: 'AI' },
+  embed: { label: 'Embedding model', icon: 'Brain', cat: 'AI' },
+  vector: { label: 'Vector database', icon: 'Waypoints', cat: 'AI' },
+  agent: { label: 'Agent / tool', icon: 'Bot', cat: 'AI' },
+};
+const CATS = ['General', 'Data', 'Messaging', 'Network', 'Compute', 'AI'];
+
+const TOOLS = [
+  { id: 'select', title: 'Select  (V)', icon: 'MousePointer2' },
+  { id: 'pan', title: 'Pan  (H)', icon: 'Hand' },
+  { id: 'connect', title: 'Connector  (C)', icon: 'ArrowRight' },
+  { id: 'pen', title: 'Pen  (P)', icon: 'PenTool' },
+  { id: 'highlighter', title: 'Highlighter  (M)', icon: 'Highlighter' },
+  { id: 'eraser', title: 'Eraser  (E)', icon: 'Eraser' },
+  { id: 'text', title: 'Text  (T)', icon: 'Type' },
+  { id: 'note', title: 'Sticky note  (N)', icon: 'StickyNote' },
+];
+
+const PEN_COLORS = ['#201e1d', '#ec3013', '#2d5fd0', '#0f8a54'];
+const SQUARE = [['rect', { x: 4, y: 4, width: 16, height: 16 }]];
+
+function iconSvg(name, size, color) {
+  const lib = (typeof window !== 'undefined' && window.lucide && window.lucide.icons) || {};
+  let node = lib[name] || SQUARE;
+  // lucide exposes ["svg", attrs, children]; older builds expose the child list directly
+  if (typeof node[0] === 'string') node = node[2] || SQUARE;
+  const kids = node
+    .map(([tag, attrs]) => '<' + tag + ' ' + Object.entries(attrs || {}).map(([k, v]) => k + '="' + v + '"').join(' ') + '/>')
+    .join('');
+  return '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="' + (color || 'currentColor') + '" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">' + kids + '</svg>';
+}
+
+const el = React.createElement;
+const icon = (name, size, color) =>
+  el('span', { key: 'i' + name, style: { display: 'flex' }, dangerouslySetInnerHTML: { __html: iconSvg(name, size || 17, color) } });
+
+const uid = (p) => p + '_' + Math.random().toString(36).slice(2, 9);
+const snap = (v) => Math.round(v / 8) * 8;
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const center = (n) => ({ x: n.x + n.w / 2, y: n.y + n.h / 2 });
+const initials = (name) => (name || '?').split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+
+function anchor(from, to) {
+  const a = center(from), b = center(to);
+  const dx = b.x - a.x, dy = b.y - a.y;
+  if (Math.abs(dx) >= Math.abs(dy)) return { x: dx >= 0 ? from.x + from.w : from.x, y: a.y };
+  return { x: a.x, y: dy >= 0 ? from.y + from.h : from.y };
+}
+
+function edgePath(a, b, style) {
+  if (style === 'straight') return 'M' + a.x + ' ' + a.y + ' L' + b.x + ' ' + b.y;
+  if (style === 'curved') {
+    const mx = (a.x + b.x) / 2;
+    return 'M' + a.x + ' ' + a.y + ' C' + mx + ' ' + a.y + ' ' + mx + ' ' + b.y + ' ' + b.x + ' ' + b.y;
+  }
+  const mx = (a.x + b.x) / 2;
+  return 'M' + a.x + ' ' + a.y + ' L' + mx + ' ' + a.y + ' L' + mx + ' ' + b.y + ' L' + b.x + ' ' + b.y;
+}
+
+const strokePath = (pts) =>
+  pts.length < 2 ? 'M' + (pts[0] ? pts[0][0] + ' ' + pts[0][1] + ' l0.1 0.1' : '0 0') : 'M' + pts.map((p) => p[0] + ' ' + p[1]).join(' L');
+
+const relTime = (iso) => {
+  if (!iso) return '—';
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  if (mins < 1440) return Math.round(mins / 60) + 'h ago';
+  return Math.round(mins / 1440) + 'd ago';
+};
+const dayTime = (iso) =>
+  iso ? new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Not scheduled';
+
+class Component extends DCLogic {
+  state = {
+    api: null, screen: 'dashboard', role: 'interviewer', user: null,
+    email: 'dana@northwind.dev', busy: false, error: '', toast: '',
+    sessions: null, session: null, participants: [], link: null, audit: [],
+    form: { title: '', prompt: '', duration_minutes: 45, template_id: 'blank', editing: true },
+    lobbyName: '', lobbyError: '', lobbyPreview: null,
+    doc: { nodes: [], edges: [], strokes: [] },
+    tool: 'select', armed: null, selected: [], editingId: null,
+    view: { x: 120, y: 60, z: 1 },
+    conn: 'offline', cursors: {}, cursorsVisible: true, saveState: 'saved', readOnly: false,
+    libraryOpen: true, penColor: '#ec3013', penWidth: 2,
+    marquee: null, draft: null, dialog: null, tick: 0,
+    history: [], future: [],
+  };
+
+  surface = null;
+  socket = null;
+  drag = null;
+  saveTimer = null;
+  toastTimer = null;
+
+  /* ---------------------------------------------------------- lifecycle */
+
+  async componentDidMount() {
+    const mod = await import('./mock-backend.js');
+    mod.setLatencyScale(this.props.latencyScale ?? 1);
+    this.mod = mod;
+    const start = this.props.startScreen || 'dashboard';
+    this.setState({ api: mod.api, user: mod.api.currentUser(), screen: start, role: start === 'lobby' ? 'candidate' : 'interviewer' });
+    if (start === 'dashboard' || start === 'create') this.loadSessions(mod.api);
+    if (start === 'lobby') this.previewLobby(mod.api);
+    this.timer = setInterval(() => this.setState((s) => ({ tick: s.tick + 1 })), 1000);
+    window.addEventListener('keydown', this.onKey);
+    window.addEventListener('pointerup', this.onSurfaceUp);
+    if (!window.lucide) {
+      this.iconPoll = setInterval(() => { if (window.lucide) { clearInterval(this.iconPoll); this.forceUpdate(); } }, 120);
+    }
+  }
+
+  componentWillUnmount() {
+    clearInterval(this.timer);
+    clearInterval(this.iconPoll);
+    clearTimeout(this.saveTimer);
+    window.removeEventListener('keydown', this.onKey);
+    window.removeEventListener('pointerup', this.onSurfaceUp);
+    if (this.socket) this.socket.close();
+  }
+
+  flash(msg) {
+    clearTimeout(this.toastTimer);
+    this.setState({ toast: msg });
+    this.toastTimer = setTimeout(() => this.setState({ toast: '' }), 2600);
+  }
+
+  async loadSessions(api) {
+    this.setState({ sessions: null });
+    const sessions = await (api || this.state.api).listSessions();
+    this.setState({ sessions });
+  }
+
+  async previewLobby(api) {
+    try {
+      const p = await (api || this.state.api).previewJoin(null);
+      this.setState({ lobbyPreview: p, lobbyError: '' });
+    } catch (e) {
+      this.setState({ lobbyError: e.message });
+    }
+  }
+
+  /* ------------------------------------------------------------- canvas */
+
+  async openSession(session, opts = {}) {
+    const readOnly = !!opts.readOnly || (session.state === 'ended' && this.state.role === 'candidate');
+    this.setState({ screen: 'canvas', session, readOnly, selected: [], history: [], future: [], view: { x: 120, y: 60, z: 1 } });
+    const [{ doc }, sess] = await Promise.all([this.state.api.getCanvas(session.id), this.state.api.getSession(session.id)]);
+    this.setState({ doc, session: sess });
+    this.connect(sess);
+    setTimeout(this.zoomToFit, 60);
+  }
+
+  connect(session) {
+    if (this.socket) this.socket.close();
+    const self = this.state.role === 'candidate'
+      ? { id: 'par_self', display_name: this.state.lobbyName || 'Candidate', role: 'candidate' }
+      : { id: 'par_self', display_name: this.state.user.display_name, role: 'owner' };
+    const withRemote = this.state.role === 'interviewer' && session.state !== 'ended';
+    const sock = this.mod.openSocket({ sessionId: session.id, self, withRemote });
+    this.socket = sock;
+    sock.on('status', (conn) => this.setState({ conn }));
+    sock.on('presence_snapshot', (roster) => this.setState({ roster }));
+    sock.on('presence_update', (p) =>
+      this.setState((s) => ({ cursors: { ...s.cursors, [p.participant_id]: p } })));
+    sock.on('resynced', () => this.flash('Reconnected — canvas converged with the server.'));
+    sock.on('permission_changed', (m) =>
+      this.flash(m.candidate_editing_enabled ? 'Editing unlocked.' : 'Editing locked by the interviewer.'));
+  }
+
+  canEdit(silent) {
+    const s = this.state;
+    if (s.readOnly) { if (!silent) this.flash('This interview has ended — the canvas is read-only.'); return false; }
+    if (s.role === 'candidate' && s.session && !s.session.candidate_editing_enabled) {
+      if (!silent) this.flash('Rejected by the server: the interviewer has locked editing.');
+      return false;
+    }
+    if (s.conn === 'offline') { if (!silent) this.flash('Not connected — reconnecting before edits are accepted.'); return false; }
+    return true;
+  }
+
+  commit(mutator, opts = {}) {
+    if (!opts.force && !this.canEdit()) return;
+    this.setState((s) => {
+      const next = structuredClone(s.doc);
+      mutator(next);
+      return { doc: next, history: [...s.history.slice(-49), s.doc], future: [] };
+    }, this.queueSave);
+  }
+
+  queueSave = () => {
+    clearTimeout(this.saveTimer);
+    this.setState({ saveState: 'saving' });
+    this.saveTimer = setTimeout(async () => {
+      const s = this.state;
+      if (!s.session) return;
+      try {
+        if (this.socket) this.socket.send('document_update', { client_operation_id: uid('op') });
+        await s.api.saveCanvas(s.session.id, s.doc, s.role === 'candidate' ? 'candidate' : 'owner');
+        this.setState({ saveState: 'saved' });
+      } catch (e) {
+        this.setState({ saveState: 'error' });
+        this.flash(e.message);
+      }
+    }, 1200);
+  };
+
+  /** Pointer capture keeps a drag alive outside the surface; never fatal if it fails. */
+  capture(e) { try { this.surface.setPointerCapture(e.pointerId); } catch (_) {} }
+
+  toWorld(e) {
+    const r = this.surface.getBoundingClientRect();
+    const v = this.state.view;
+    return { x: (e.clientX - r.left - v.x) / v.z, y: (e.clientY - r.top - v.y) / v.z };
+  }
+
+  onKey = (e) => {
+    if (this.state.screen !== 'canvas') return;
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea') return;
+    const meta = e.metaKey || e.ctrlKey;
+    if (meta && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); return; }
+    if (meta && e.key.toLowerCase() === 'd') { e.preventDefault(); this.duplicateSel(); return; }
+    if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); this.deleteSel(); return; }
+    if (e.key === 'Escape') { this.setState({ selected: [], armed: null, draft: null, editingId: null }); return; }
+    const map = { v: 'select', h: 'pan', c: 'connect', p: 'pen', m: 'highlighter', e: 'eraser', t: 'text', n: 'note' };
+    if (map[e.key.toLowerCase()]) this.setState({ tool: map[e.key.toLowerCase()], armed: null });
+  };
+
+  /* --------------------------------------------------------- pointer ops */
+
+  onSurfaceDown = (e) => {
+    if (e.button === 1 || e.target.closest('input')) return;
+    const p = this.toWorld(e);
+    const s = this.state;
+    this.capture(e);
+    if (s.armed) { this.placeNode(s.armed, p); return; }
+    if (s.tool === 'pan' || e.button === 2) { this.drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, v: { ...s.view } }; return; }
+    if (s.tool === 'pen' || s.tool === 'highlighter') {
+      if (!this.canEdit()) return;
+      this.drag = { kind: 'draw' };
+      this.setState({ draft: { kind: 'stroke', tool: s.tool, color: s.tool === 'highlighter' ? '#ec3013' : s.penColor, width: s.tool === 'highlighter' ? 14 : s.penWidth, points: [[p.x, p.y]] } });
+      return;
+    }
+    if (s.tool === 'text' || s.tool === 'note') { this.placeNode(s.tool, p); return; }
+    if (s.tool === 'eraser') return;
+    this.setState({ selected: [], editingId: null, marquee: { x0: p.x, y0: p.y, x1: p.x, y1: p.y } });
+    this.drag = { kind: 'marquee' };
+  };
+
+  onSurfaceMove = (e) => {
+    const s = this.state;
+    if (this.socket && s.conn === 'connected' && !this._lastPing) {
+      this._lastPing = 1;
+      setTimeout(() => { this._lastPing = 0; }, 120);
+      this.socket.send('presence_update', {});
+    }
+    if (!this.drag) return;
+    const p = this.toWorld(e);
+    const d = this.drag;
+    if (d.kind === 'pan') {
+      this.setState({ view: { ...s.view, x: d.v.x + (e.clientX - d.sx), y: d.v.y + (e.clientY - d.sy) } });
+    } else if (d.kind === 'marquee') {
+      this.setState((st) => ({ marquee: { ...st.marquee, x1: p.x, y1: p.y } }));
+    } else if (d.kind === 'draw') {
+      this.setState((st) => ({ draft: { ...st.draft, points: [...st.draft.points, [Math.round(p.x), Math.round(p.y)]] } }));
+    } else if (d.kind === 'move') {
+      const dx = p.x - d.px, dy = p.y - d.py;
+      this.setState((st) => ({
+        doc: { ...st.doc, nodes: st.doc.nodes.map((n) => (d.ids.includes(n.id) ? { ...n, x: snap(d.orig[n.id].x + dx), y: snap(d.orig[n.id].y + dy) } : n)) },
+      }));
+    } else if (d.kind === 'resize') {
+      this.setState((st) => ({
+        doc: { ...st.doc, nodes: st.doc.nodes.map((n) => (n.id === d.id ? { ...n, w: Math.max(96, snap(d.w + (p.x - d.px))), h: Math.max(56, snap(d.h + (p.y - d.py))) } : n)) },
+      }));
+    } else if (d.kind === 'connect') {
+      this.setState({ draft: { kind: 'edge', from: d.from, to: p } });
+    }
+  };
+
+  onSurfaceUp = (e) => {
+    const s = this.state;
+    const d = this.drag;
+    this.drag = null;
+    if (d && d.kind === 'draw' && s.draft) {
+      const st = s.draft;
+      this.setState({ draft: null });
+      if (st.points.length > 1) this.commit((doc) => doc.strokes.push({ id: uid('str'), tool: st.tool, color: st.color, width: st.width, points: st.points }));
+      return;
+    }
+    if (d && d.kind === 'marquee' && s.marquee) {
+      const m = s.marquee;
+      const box = { x: Math.min(m.x0, m.x1), y: Math.min(m.y0, m.y1), w: Math.abs(m.x1 - m.x0), h: Math.abs(m.y1 - m.y0) };
+      const hits = box.w > 6 && box.h > 6
+        ? s.doc.nodes.filter((n) => n.x < box.x + box.w && n.x + n.w > box.x && n.y < box.y + box.h && n.y + n.h > box.y).map((n) => n.id)
+        : [];
+      this.setState({ marquee: null, selected: hits });
+      return;
+    }
+    if (d && d.kind === 'connect') {
+      const p = this.toWorld(e);
+      const hit = [...s.doc.nodes].reverse().find((n) => p.x >= n.x && p.x <= n.x + n.w && p.y >= n.y && p.y <= n.y + n.h);
+      this.setState({ draft: null });
+      if (hit && hit.id !== d.from) {
+        this.commit((doc) => doc.edges.push({ id: uid('edg'), from: d.from, to: hit.id, label: '', style: 'elbow', arrowEnd: true }));
+      }
+      return;
+    }
+    if (d && (d.kind === 'move' || d.kind === 'resize')) {
+      this.setState((st) => ({ history: [...st.history.slice(-49), d.before], future: [] }), this.queueSave);
+    }
+  };
+
+  onWheel = (e) => {
+    e.preventDefault();
+    const s = this.state;
+    if (e.ctrlKey || e.metaKey) {
+      const r = this.surface.getBoundingClientRect();
+      const cx = e.clientX - r.left, cy = e.clientY - r.top;
+      const z = clamp(s.view.z * (e.deltaY > 0 ? 0.92 : 1.08), 0.2, 3);
+      const k = z / s.view.z;
+      this.setState({ view: { z, x: cx - (cx - s.view.x) * k, y: cy - (cy - s.view.y) * k } });
+    } else {
+      this.setState({ view: { ...s.view, x: s.view.x - e.deltaX, y: s.view.y - e.deltaY } });
+    }
+  };
+
+  placeNode(type, p) {
+    if (!this.canEdit()) { this.setState({ armed: null }); return; }
+    const meta = CATALOG[type] || { label: 'Box' };
+    const isNote = type === 'note';
+    const node = {
+      id: uid('nod'), type, label: type === 'text' ? 'Text' : meta.label,
+      x: snap(p.x - 84), y: snap(p.y - 44), w: isNote ? 152 : 176, h: isNote ? 112 : 88, desc: '',
+    };
+    this.commit((doc) => doc.nodes.push(node));
+    this.setState({ armed: null, selected: [node.id], tool: 'select', editingId: node.id });
+  }
+
+  nodeDown(n, e) {
+    e.stopPropagation();
+    const s = this.state;
+    if (s.tool === 'eraser') { this.commit((doc) => { doc.nodes = doc.nodes.filter((x) => x.id !== n.id); doc.edges = doc.edges.filter((x) => x.from !== n.id && x.to !== n.id); }); return; }
+    if (s.tool === 'connect') {
+      if (!this.canEdit()) return;
+      this.capture(e);
+      this.drag = { kind: 'connect', from: n.id };
+      return;
+    }
+    if (s.tool === 'pan') return;
+    const additive = e.shiftKey;
+    const selected = additive
+      ? (s.selected.includes(n.id) ? s.selected.filter((i) => i !== n.id) : [...s.selected, n.id])
+      : (s.selected.includes(n.id) ? s.selected : [n.id]);
+    this.setState({ selected, editingId: null });
+    if (!this.canEdit(true)) return;
+    const p = this.toWorld(e);
+    const orig = {};
+    s.doc.nodes.forEach((x) => { orig[x.id] = { x: x.x, y: x.y }; });
+    this.capture(e);
+    this.drag = { kind: 'move', ids: selected, orig, px: p.x, py: p.y, before: structuredClone(s.doc) };
+  }
+
+  /* ------------------------------------------------------------- actions */
+
+  undo = () => this.setState((s) => {
+    if (!s.history.length) return {};
+    return { doc: s.history[s.history.length - 1], history: s.history.slice(0, -1), future: [...s.future, s.doc] };
+  }, this.queueSave);
+
+  redo = () => this.setState((s) => {
+    if (!s.future.length) return {};
+    return { doc: s.future[s.future.length - 1], future: s.future.slice(0, -1), history: [...s.history, s.doc] };
+  }, this.queueSave);
+
+  deleteSel = () => {
+    const ids = this.state.selected;
+    if (!ids.length) return;
+    this.commit((doc) => {
+      doc.nodes = doc.nodes.filter((n) => !ids.includes(n.id));
+      doc.edges = doc.edges.filter((e) => !ids.includes(e.id) && !ids.includes(e.from) && !ids.includes(e.to));
+      doc.strokes = doc.strokes.filter((s) => !ids.includes(s.id));
+    });
+    this.setState({ selected: [] });
+  };
+
+  duplicateSel = () => {
+    const ids = this.state.selected;
+    if (!ids.length) return;
+    const fresh = [];
+    this.commit((doc) => {
+      doc.nodes.filter((n) => ids.includes(n.id)).forEach((n) => {
+        const copy = { ...n, id: uid('nod'), x: n.x + 24, y: n.y + 24 };
+        fresh.push(copy.id);
+        doc.nodes.push(copy);
+      });
+    });
+    setTimeout(() => this.setState({ selected: fresh }), 0);
+  };
+
+  patchNode(id, patch) { this.commit((doc) => { const n = doc.nodes.find((x) => x.id === id); if (n) Object.assign(n, patch); }); }
+  patchEdge(id, patch) { this.commit((doc) => { const e = doc.edges.find((x) => x.id === id); if (e) Object.assign(e, patch); }); }
+
+  zoomToFit = () => {
+    const { nodes } = this.state.doc;
+    const r = this.surface && this.surface.getBoundingClientRect();
+    if (!nodes.length || !r) { this.setState({ view: { x: 120, y: 60, z: 1 } }); return; }
+    const x0 = Math.min(...nodes.map((n) => n.x)), y0 = Math.min(...nodes.map((n) => n.y));
+    const x1 = Math.max(...nodes.map((n) => n.x + n.w)), y1 = Math.max(...nodes.map((n) => n.y + n.h));
+    const z = clamp(Math.min((r.width - 80) / (x1 - x0), (r.height - 80) / (y1 - y0)), 0.2, 1.4);
+    this.setState({ view: { z, x: (r.width - (x1 - x0) * z) / 2 - x0 * z, y: (r.height - (y1 - y0) * z) / 2 - y0 * z } });
+  };
+
+  zoomBy(k) {
+    const r = this.surface.getBoundingClientRect();
+    const s = this.state.view;
+    const z = clamp(s.z * k, 0.2, 3);
+    const cx = r.width / 2, cy = r.height / 2;
+    const f = z / s.z;
+    this.setState({ view: { z, x: cx - (cx - s.x) * f, y: cy - (cy - s.y) * f } });
+  }
+
+  /* -------------------------------------------------------- render vals */
+
+  renderVals() {
+    const s = this.state;
+    const v = s.view;
+    const sess = s.session;
+    const isOwner = s.role === 'interviewer' && !s.readOnly;
+    const locked = sess ? !sess.candidate_editing_enabled : false;
+    const selSet = s.selected;
+    const selNode = selSet.length === 1 ? s.doc.nodes.find((n) => n.id === selSet[0]) : null;
+    const selEdge = selSet.length === 1 ? s.doc.edges.find((e) => e.id === selSet[0]) : null;
+    const nodeById = {};
+    s.doc.nodes.forEach((n) => { nodeById[n.id] = n; });
+
+    const roster = (s.roster || [{ id: 'par_self', display_name: s.role === 'candidate' ? (s.lobbyName || 'You') : (s.user ? s.user.display_name : 'You'), role: s.role === 'candidate' ? 'candidate' : 'owner', color: '#ec3013', you: true }]);
+
+    // A finished interview freezes its clock at the recorded elapsed time.
+    const started = sess && sess.started_at ? new Date(sess.started_at).getTime() : null;
+    const stopped = sess && sess.ended_at ? new Date(sess.ended_at).getTime() : null;
+    const secs = started ? Math.max(0, Math.floor(((stopped || Date.now()) - started) / 1000)) : 0;
+    const timerLabel = String(Math.floor(secs / 60)).padStart(2, '0') + ':' + String(secs % 60).padStart(2, '0');
+
+    const connMeta = s.readOnly
+      ? ['Archived snapshot', '#9b9797']
+      : { connected: ['Connected', '#0f8a54'], reconnecting: ['Reconnecting…', '#ec3013'], connecting: ['Connecting…', '#bab6b6'], offline: ['Offline', '#bab6b6'] }[s.conn] || ['Offline', '#bab6b6'];
+
+    const nodeViews = s.doc.nodes.map((n) => {
+      const sel = selSet.includes(n.id);
+      const isNote = n.type === 'note';
+      const isText = n.type === 'text';
+      const meta = CATALOG[n.type] || { icon: 'Box' };
+      return {
+        id: n.id, label: n.label, editing: s.editingId === n.id, notEditing: s.editingId !== n.id,
+        showHandle: sel && selSet.length === 1 && !s.readOnly,
+        showOwnerTag: sel, ownerTag: roster[0].display_name,
+        icon: isText ? null : icon(meta.icon, isNote ? 15 : 17),
+        iconStyle: { display: isText ? 'none' : 'flex', flex: 'none', color: isNote ? '#7c1405' : '#605d5d', marginTop: '1px' },
+        labelStyle: {
+          fontFamily: isText ? 'var(--font-body)' : 'var(--font-heading)',
+          fontWeight: isText ? 400 : 800, fontSize: isText ? '15px' : '13px',
+          lineHeight: 1.25, letterSpacing: '-0.005em', overflowWrap: 'anywhere',
+        },
+        ownerTagStyle: {
+          position: 'absolute', left: '-1px', top: '-17px', background: '#ec3013', color: '#f3f2f2',
+          fontSize: '10px', letterSpacing: '0.04em', padding: '1px 5px', whiteSpace: 'nowrap', pointerEvents: 'none',
+        },
+        box: {
+          position: 'absolute', left: n.x + 'px', top: n.y + 'px', width: n.w + 'px', height: n.h + 'px',
+          display: 'flex', flexDirection: 'column', gap: '4px', padding: isText ? '4px' : '9px 10px',
+          background: isNote ? '#ffe0d9' : isText ? 'transparent' : '#eae9e9',
+          border: isText ? '1px dashed transparent' : n.type === 'boundary' ? '1px dashed #605d5d' : '1px solid rgba(32,30,29,0.4)',
+          outline: sel ? '2px solid #ec3013' : 'none', outlineOffset: '1px',
+          cursor: s.tool === 'connect' ? 'crosshair' : s.tool === 'eraser' ? 'not-allowed' : 'move',
+          boxSizing: 'border-box', userSelect: 'none',
+        },
+        onDown: (e) => this.nodeDown(n, e),
+        onEdit: (e) => { e.stopPropagation(); if (this.canEdit()) this.setState({ editingId: n.id, selected: [n.id] }); },
+        onLabel: (e) => this.patchNode(n.id, { label: e.target.value }),
+        onResize: (e) => {
+          e.stopPropagation();
+          this.capture(e);
+          const p = this.toWorld(e);
+          this.drag = { kind: 'resize', id: n.id, w: n.w, h: n.h, px: p.x, py: p.y, before: structuredClone(s.doc) };
+        },
+      };
+    });
+
+    const edgeViews = s.doc.edges.map((e) => {
+      const a = nodeById[e.from], b = nodeById[e.to];
+      if (!a || !b) return null;
+      const p1 = anchor(a, b), p2 = anchor(b, a);
+      const sel = selSet.includes(e.id);
+      return {
+        id: e.id, d: edgePath(p1, p2, e.style), label: e.label || '',
+        lx: (p1.x + p2.x) / 2, ly: (p1.y + p2.y) / 2 - 7,
+        stroke: sel ? '#ec3013' : '#201e1d', width: sel ? 2.5 : 1.5,
+        dash: e.dashed ? '6 5' : '0',
+        markerEnd: e.arrowEnd === false ? 'none' : sel ? 'url(#pf-arrow-sel)' : 'url(#pf-arrow)',
+        onDown: (ev) => {
+          ev.stopPropagation();
+          if (s.tool === 'eraser') this.commit((doc) => { doc.edges = doc.edges.filter((x) => x.id !== e.id); });
+          else this.setState({ selected: [e.id], editingId: null });
+        },
+      };
+    }).filter(Boolean);
+
+    const liveStrokes = s.draft && s.draft.kind === 'stroke' ? [...s.doc.strokes, s.draft] : s.doc.strokes;
+    const strokeViews = liveStrokes.map((st, i) => ({
+      id: st.id || 'draft' + i, d: strokePath(st.points), color: st.color,
+      width: st.width, opacity: st.tool === 'highlighter' ? 0.32 : 1,
+      onDown: (ev) => {
+        if (s.tool !== 'eraser' || !st.id) return;
+        ev.stopPropagation();
+        this.commit((doc) => { doc.strokes = doc.strokes.filter((x) => x.id !== st.id); });
+      },
+    }));
+
+    const draftEdge = s.draft && s.draft.kind === 'edge' ? s.draft : null;
+    const draftFrom = draftEdge ? nodeById[draftEdge.from] : null;
+
+    const m = s.marquee;
+
+    return {
+      /* screens */
+      atSignIn: s.screen === 'signin', atDashboard: s.screen === 'dashboard', atCreate: s.screen === 'create',
+      atLobby: s.screen === 'lobby', atCanvas: s.screen === 'canvas', atReview: s.screen === 'review',
+      showDemo: this.props.demoControls !== false,
+
+      /* sign in */
+      email: s.email, error: s.error, busy: s.busy,
+      signInLabel: s.busy ? 'Sending…' : 'Send magic link',
+      onEmail: (e) => this.setState({ email: e.target.value }),
+      doSignIn: async () => {
+        this.setState({ busy: true, error: '' });
+        try {
+          const r = await s.api.signIn(s.email);
+          this.setState({ user: r.user, screen: 'dashboard', busy: false });
+          this.loadSessions();
+        } catch (err) { this.setState({ error: err.message, busy: false }); }
+      },
+      goLobbyDemo: () => { this.setState({ screen: 'lobby', role: 'candidate' }); this.previewLobby(); },
+
+      /* dashboard */
+      userEmail: s.user ? s.user.email : '—',
+      newLabel: 'New interview',
+      loadingSessions: s.sessions === null,
+      hasSessions: !!(s.sessions && s.sessions.length),
+      sessionCountLabel: s.sessions ? s.sessions.length + ' sessions · ' + s.sessions.filter((x) => x.state === 'live').length + ' live' : '',
+      sessionRows: (s.sessions || []).map((row) => ({
+        title: row.title,
+        promptShort: row.prompt ? row.prompt.slice(0, 84) + (row.prompt.length > 84 ? '…' : '') : 'No prompt yet',
+        state: row.state,
+        stateClass: row.state === 'live' ? 'tag tag-accent' : row.state === 'draft' ? 'tag tag-outline' : 'tag tag-neutral',
+        scheduled: row.scheduled_at ? dayTime(row.scheduled_at) : row.started_at ? dayTime(row.started_at) : 'Not scheduled',
+        participants: row.participants.length ? row.participants.join(', ') : 'No one has joined yet',
+        modified: relTime(row.updated_at),
+        openLabel: row.state === 'ended' || row.state === 'archived' ? 'Review' : 'Open',
+        open: (e) => {
+          if (e && e.preventDefault) e.preventDefault();
+          if (row.state === 'ended' || row.state === 'archived') this.setState({ screen: 'review', session: row }, async () => {
+            const [doc, audit] = await Promise.all([s.api.getCanvas(row.id), s.api.auditTrail(row.id)]);
+            this.setState({ doc: doc.doc, audit });
+          });
+          else this.openSession(row);
+        },
+        duplicate: async () => { await s.api.duplicateSession(row.id); this.flash('Duplicated as a new draft.'); this.loadSessions(); },
+      })),
+      goCreate: () => this.setState({ screen: 'create', error: '' }),
+      goDashboard: () => { this.setState({ screen: 'dashboard' }); this.loadSessions(); },
+
+      /* create */
+      formTitle: s.form.title, formPrompt: s.form.prompt,
+      onFormTitle: (e) => this.setState({ form: { ...s.form, title: e.target.value } }),
+      onFormPrompt: (e) => this.setState({ form: { ...s.form, prompt: e.target.value } }),
+      durations: [30, 45, 60].map((d) => ({
+        label: d + ' min', checked: s.form.duration_minutes === d,
+        pick: () => this.setState({ form: { ...s.form, duration_minutes: d } }),
+      })),
+      formEditingOn: s.form.editing, formEditingOff: !s.form.editing,
+      setEditingOn: () => this.setState({ form: { ...s.form, editing: true } }),
+      setEditingOff: () => this.setState({ form: { ...s.form, editing: false } }),
+      templates: (this.mod ? this.mod.TEMPLATES : []).map((t) => ({
+        name: t.name, note: t.note,
+        style: {
+          cursor: 'pointer', border: s.form.template_id === t.id ? '2px solid var(--color-accent)' : '1px solid var(--color-divider)',
+          background: s.form.template_id === t.id ? 'var(--color-accent-100)' : 'var(--color-surface)',
+        },
+        pick: () => this.setState({ form: { ...s.form, template_id: t.id } }),
+      })),
+      createLabel: s.busy ? 'Creating…' : 'Create draft and link',
+      doCreate: async () => {
+        this.setState({ busy: true, error: '' });
+        try {
+          const created = await s.api.createSession({ ...s.form, candidate_editing_enabled: s.form.editing });
+          const live = await s.api.startSession(created.id);
+          const link = await s.api.createGuestLink(created.id);
+          this.setState({ busy: false, link, form: { title: '', prompt: '', duration_minutes: 45, template_id: 'blank', editing: true } });
+          await this.openSession(live);
+          this.setState({ dialog: 'share' });
+        } catch (err) { this.setState({ error: err.message, busy: false }); }
+      },
+
+      /* lobby */
+      lobbyTitle: s.lobbyPreview ? s.lobbyPreview.title : 'Joining an interview',
+      lobbySub: s.lobbyPreview
+        ? s.lobbyPreview.owner + ' invited you · ' + s.lobbyPreview.duration_minutes + ' minutes · up to ' + s.lobbyPreview.capacity + ' participants'
+        : 'Checking your link…',
+      lobbyName: s.lobbyName, lobbyError: s.lobbyError,
+      joinLabel: s.busy ? 'Joining…' : 'Join interview',
+      onLobbyName: (e) => this.setState({ lobbyName: e.target.value }),
+      doJoin: async () => {
+        this.setState({ busy: true, lobbyError: '' });
+        try {
+          const r = await s.api.join(null, s.lobbyName);
+          this.setState({ busy: false, role: 'candidate', lobbyName: r.participant.display_name });
+          await this.openSession(r.session);
+        } catch (err) { this.setState({ lobbyError: err.message, busy: false }); }
+      },
+
+      /* canvas chrome */
+      sessionTitle: sess ? sess.title : 'Interview',
+      sessionPrompt: sess && sess.prompt ? sess.prompt : 'No prompt was set for this interview.',
+      connLabel: connMeta[0], connColor: connMeta[1],
+      saveLabel: s.readOnly ? 'Final snapshot · not editable' : s.saveState === 'saving' ? 'Saving…' : s.saveState === 'error' ? 'Not saved' : 'All changes saved',
+      timerLabel,
+      isOwner,
+      backLabel: s.role === 'candidate' ? 'Leave' : 'All interviews',
+      leaveCanvas: () => {
+        if (this.socket) this.socket.close();
+        this.setState({ screen: s.role === 'candidate' ? 'lobby' : 'dashboard', conn: 'offline', cursors: {} });
+        if (s.role !== 'candidate') this.loadSessions();
+      },
+      lockLabel: s.readOnly ? 'Read-only — interview ended' : locked ? 'Candidate editing locked' : 'Editing unlocked',
+      lockTagClass: s.readOnly ? 'tag tag-outline' : locked ? 'tag tag-accent' : 'tag tag-neutral',
+      lockButtonLabel: locked ? 'Unlock editing' : 'Lock editing',
+      toggleLock: async () => {
+        const next = !sess.candidate_editing_enabled;
+        const updated = await s.api.patchSession(sess.id, { candidate_editing_enabled: next });
+        this.setState({ session: updated });
+        if (this.socket) this.socket.permissionChanged(next);
+        this.flash(next ? 'Candidate editing unlocked.' : 'Candidate editing locked — server will reject their updates.');
+      },
+      roster: roster.map((p) => ({
+        name: p.display_name, role: p.role, title: p.display_name + ' · ' + p.role, initials: initials(p.display_name),
+        chipStyle: {
+          width: '26px', height: '26px', display: 'grid', placeItems: 'center', fontSize: '10px',
+          fontFamily: 'var(--font-heading)', fontWeight: 800, color: '#f3f2f2', background: p.color || '#605d5d',
+        },
+        dotStyle: { width: '10px', height: '10px', background: p.color || '#605d5d', flex: 'none' },
+        removable: isOwner && !p.you,
+        remove: async () => { await s.api.removeParticipant(sess.id, p.id); this.flash(p.display_name + ' was removed.'); },
+      })),
+
+      /* tools */
+      tools: (s.readOnly ? TOOLS.filter((t) => t.id === 'select' || t.id === 'pan') : TOOLS).map((t) => ({
+        title: t.title, icon: icon(t.icon, 17),
+        style: {
+          background: s.tool === t.id ? 'var(--color-accent)' : 'transparent',
+          color: s.tool === t.id ? 'var(--color-bg)' : 'var(--color-text)',
+          border: '1px solid ' + (s.tool === t.id ? 'var(--color-accent)' : 'transparent'),
+        },
+        pick: () => this.setState({ tool: t.id, armed: null, editingId: null }),
+      })),
+      libIcon: icon('Shapes', 17),
+      libStyle: {
+        background: s.libraryOpen ? 'rgba(32,30,29,0.1)' : 'transparent',
+        border: '1px solid ' + (s.libraryOpen ? 'var(--color-divider)' : 'transparent'),
+      },
+      toggleLibrary: () => this.setState({ libraryOpen: !s.libraryOpen }),
+      libraryOpen: s.libraryOpen && !s.readOnly,
+      canDraw: !s.readOnly,
+      armedType: !!s.armed,
+      armedLabel: s.armed && CATALOG[s.armed] ? CATALOG[s.armed].label : '',
+      palette: CATS.map((cat) => ({
+        name: cat,
+        items: Object.entries(CATALOG).filter(([, c]) => c.cat === cat).map(([type, c]) => ({
+          label: c.label, icon: icon(c.icon, 15),
+          style: {
+            display: 'flex', alignItems: 'center', gap: '8px', width: '100%', textAlign: 'left',
+            padding: '5px 6px', fontSize: '12px', cursor: 'pointer', fontFamily: 'var(--font-body)',
+            background: s.armed === type ? 'var(--color-accent-100)' : 'transparent',
+            border: '1px solid ' + (s.armed === type ? 'var(--color-accent)' : 'transparent'),
+            color: 'var(--color-text)',
+          },
+          arm: () => this.setState({ armed: type, tool: 'select' }),
+        })),
+      })),
+
+      /* canvas surface */
+      surfaceRef: (n) => { this.surface = n; },
+      surfaceStyle: {
+        position: 'absolute', inset: 0, overflow: 'hidden', touchAction: 'none',
+        background: 'var(--color-bg)',
+        backgroundImage: 'linear-gradient(rgba(32,30,29,0.09) 1px, transparent 1px), linear-gradient(90deg, rgba(32,30,29,0.09) 1px, transparent 1px)',
+        backgroundSize: GRID * v.z + 'px ' + GRID * v.z + 'px',
+        backgroundPosition: v.x + 'px ' + v.y + 'px',
+        cursor: s.armed ? 'copy' : s.tool === 'pan' ? 'grab' : s.tool === 'pen' || s.tool === 'highlighter' ? 'crosshair' : s.tool === 'eraser' ? 'cell' : s.tool === 'connect' ? 'crosshair' : 'default',
+      },
+      worldStyle: { position: 'absolute', left: 0, top: 0, transformOrigin: '0 0', transform: 'translate(' + v.x + 'px,' + v.y + 'px) scale(' + v.z + ')' },
+      nodeViews, edgeViews, strokeViews,
+      draftEdge: !!draftEdge,
+      draftEdgeD: draftEdge && draftFrom ? edgePath(anchor(draftFrom, { x: draftEdge.to.x, y: draftEdge.to.y, w: 1, h: 1 }), draftEdge.to, 'straight') : '',
+      cursorViews: (s.cursorsVisible ? Object.values(s.cursors) : []).map((c) => ({
+        name: c.display_name, color: c.color,
+        style: { position: 'absolute', left: c.cursor.x + 'px', top: c.cursor.y + 'px', display: 'flex', alignItems: 'flex-start', gap: '2px', pointerEvents: 'none', transition: 'left 0.85s linear, top 0.85s linear' },
+        tagStyle: { background: c.color, color: '#f3f2f2', fontSize: '10px', padding: '1px 5px', whiteSpace: 'nowrap' },
+      })),
+      marquee: !!m,
+      marqueeStyle: m ? {
+        position: 'absolute', pointerEvents: 'none', border: '1px solid #ec3013', background: 'rgba(236,48,19,0.08)',
+        left: Math.min(m.x0, m.x1) * v.z + v.x + 'px', top: Math.min(m.y0, m.y1) * v.z + v.y + 'px',
+        width: Math.abs(m.x1 - m.x0) * v.z + 'px', height: Math.abs(m.y1 - m.y0) * v.z + 'px',
+      } : {},
+      onSurfaceDown: this.onSurfaceDown, onSurfaceMove: this.onSurfaceMove, onSurfaceUp: this.onSurfaceUp, onWheel: this.onWheel,
+      stopEditing: () => this.setState({ editingId: null }),
+      onLabelKey: (e) => { if (e.key === 'Enter' || e.key === 'Escape') this.setState({ editingId: null }); },
+
+      /* zoom + history */
+      zoomLabel: Math.round(v.z * 100) + '%',
+      zoomIn: () => this.zoomBy(1.15), zoomOut: () => this.zoomBy(0.87), zoomToFit: this.zoomToFit,
+      iconZoomIn: icon('ZoomIn', 16), iconZoomOut: icon('ZoomOut', 16), iconFit: icon('Maximize2', 15),
+      iconUndo: icon('Undo2', 16), iconRedo: icon('Redo2', 16),
+      undo: this.undo, redo: this.redo, noUndo: !s.history.length, noRedo: !s.future.length,
+      toast: s.toast,
+
+      /* right panel */
+      hasSelection: selSet.length > 0, noSelection: selSet.length === 0,
+      selectionTitle: selSet.length > 1 ? selSet.length + ' objects selected' : selEdge ? 'Connector' : selNode ? (CATALOG[selNode.type] ? CATALOG[selNode.type].label : 'Element') : 'Selection',
+      singleNode: !!selNode, singleEdge: !!selEdge,
+      selLabel: selNode ? selNode.label : '', selDesc: selNode ? selNode.desc || '' : '',
+      selW: selNode ? selNode.w : 0, selH: selNode ? selNode.h : 0,
+      onSelLabel: (e) => this.patchNode(selNode.id, { label: e.target.value }),
+      onSelDesc: (e) => this.patchNode(selNode.id, { desc: e.target.value }),
+      onSelW: (e) => this.patchNode(selNode.id, { w: Math.max(96, +e.target.value || 96) }),
+      onSelH: (e) => this.patchNode(selNode.id, { h: Math.max(56, +e.target.value || 56) }),
+      selEdgeLabel: selEdge ? selEdge.label : '',
+      onEdgeLabel: (e) => this.patchEdge(selEdge.id, { label: e.target.value }),
+      edgeStyles: ['elbow', 'straight', 'curved'].map((st) => ({
+        label: st[0].toUpperCase() + st.slice(1), checked: !!selEdge && selEdge.style === st,
+        pick: () => this.patchEdge(selEdge.id, { style: st }),
+      })),
+      selEdgeDashed: !!(selEdge && selEdge.dashed),
+      toggleDashed: () => this.patchEdge(selEdge.id, { dashed: !selEdge.dashed }),
+      duplicateSel: this.duplicateSel, deleteSel: this.deleteSel,
+      isPenTool: s.tool === 'pen',
+      penColors: PEN_COLORS.map((c) => ({
+        value: c,
+        style: { width: '26px', height: '26px', background: c, cursor: 'pointer', border: s.penColor === c ? '2px solid var(--color-text)' : '1px solid var(--color-divider)' },
+        pick: () => this.setState({ penColor: c }),
+      })),
+      penWidths: [{ label: 'Thin', w: 1.5 }, { label: 'Medium', w: 3 }, { label: 'Bold', w: 6 }].map((p) => ({
+        label: p.label, checked: s.penWidth === p.w, pick: () => this.setState({ penWidth: p.w }),
+      })),
+      cursorsLabel: s.cursorsVisible ? 'Hide participant cursors' : 'Show participant cursors',
+      toggleCursors: () => this.setState({ cursorsVisible: !s.cursorsVisible }),
+      dropConnection: () => { if (this.socket) this.socket.dropConnection(4200); },
+      confirmClear: () => this.setState({ dialog: 'clear' }),
+      confirmEnd: () => this.setState({ dialog: 'end' }),
+      openShare: async () => {
+        this.setState({ dialog: 'share' });
+        if (!s.link) { const link = await s.api.createGuestLink(sess.id); this.setState({ link }); }
+      },
+
+      /* dialog */
+      dialog: !!s.dialog,
+      dialogTitle: { share: 'Candidate link', end: 'End this interview?', clear: 'Clear the canvas?' }[s.dialog] || '',
+      dialogBody: {
+        share: 'Anyone with this link can join as a candidate until you revoke it.',
+        end: 'The canvas becomes read-only for the candidate and a final snapshot is saved. You can still review and duplicate it.',
+        clear: 'Every element is removed. The previous state is kept as a recoverable snapshot and undo still works.',
+      }[s.dialog] || '',
+      dialogLink: s.dialog === 'share' && s.link ? s.link.url : '',
+      dialogCancel: s.dialog === 'share' ? 'Done' : 'Cancel',
+      dialogConfirmLabel: s.dialog === 'end' ? 'End interview' : s.dialog === 'clear' ? 'Clear canvas' : '',
+      dialogConfirm: async () => {
+        if (s.dialog === 'end') {
+          const ended = await s.api.endSession(sess.id);
+          if (this.socket) { this.socket.endSession(); this.socket.close(); }
+          const audit = await s.api.auditTrail(sess.id);
+          this.setState({ dialog: null, session: ended, screen: 'review', audit, conn: 'offline', cursors: {} });
+        } else if (s.dialog === 'clear') {
+          this.commit((doc) => { doc.nodes = []; doc.edges = []; doc.strokes = []; });
+          this.setState({ dialog: null, selected: [] });
+          this.flash('Canvas cleared — undo restores the previous snapshot.');
+        }
+      },
+      closeDialog: () => this.setState({ dialog: null }),
+      stopProp: (e) => e.stopPropagation(),
+      copyLink: () => { if (s.link) navigator.clipboard.writeText(s.link.url); this.flash('Link copied.'); },
+      rotateLink: async () => { const link = await s.api.createGuestLink(sess.id); this.setState({ link }); this.flash('Link rotated — the old one no longer works.'); },
+      revokeLink: async () => { await s.api.revokeGuestLink(sess.id, s.link.link.id); this.setState({ dialog: null, link: null }); this.flash('Link revoked. Current participants stay connected.'); },
+
+      /* review */
+      reviewEnded: sess && sess.ended_at ? 'Ended ' + relTime(sess.ended_at) : '',
+      reviewStats: [
+        { label: 'Components', value: s.doc.nodes.length },
+        { label: 'Connections', value: s.doc.edges.length },
+        { label: 'Ink strokes', value: s.doc.strokes.length },
+        { label: 'Duration', value: (sess ? sess.duration_minutes : 45) + 'm' },
+      ],
+      reviewParticipants: (sess && sess.participants ? sess.participants : []).map((name, i) => ({ name, role: i === 0 ? 'owner' : 'candidate' })),
+      reviewAudit: (s.audit || []).map((a) => ({ action: a.action, at: relTime(a.at) })),
+      openReadOnly: () => this.openSession(sess, { readOnly: true }),
+      exportJson: async () => {
+        const data = await s.api.exportJson(sess.id);
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = sess.title.replace(/\W+/g, '-').toLowerCase() + '.json';
+        a.click();
+        this.flash('Canvas exported as JSON.');
+      },
+      duplicateCurrent: async () => { await s.api.duplicateSession(sess.id); this.flash('Duplicated as a new draft.'); },
+
+      /* demo strip */
+      roleOptions: [
+        { id: 'interviewer', label: 'Interviewer' },
+        { id: 'candidate', label: 'Candidate' },
+      ].map((r) => ({
+        label: r.label,
+        style: {
+          padding: '3px 8px', fontSize: '11px', cursor: 'pointer', border: 'none',
+          background: s.role === r.id ? '#ec3013' : 'rgba(255,255,255,0.12)', color: '#f8f4f4',
+        },
+        pick: () => {
+          if (r.id === s.role) return;
+          if (this.socket) this.socket.close();
+          if (r.id === 'candidate') { this.setState({ role: 'candidate', screen: 'lobby', conn: 'offline', cursors: {}, selected: [] }); this.previewLobby(); }
+          else { this.setState({ role: 'interviewer', screen: 'dashboard', readOnly: false, conn: 'offline', cursors: {}, selected: [] }); this.loadSessions(); }
+        },
+      })),
+      screenJumps: [
+        { id: 'signin', label: 'Sign in' },
+        { id: 'dashboard', label: 'Dashboard' },
+        { id: 'create', label: 'Create' },
+        { id: 'lobby', label: 'Lobby' },
+        { id: 'review', label: 'Review' },
+      ].map((j) => ({
+        label: j.label,
+        style: {
+          padding: '3px 8px', fontSize: '11px', cursor: 'pointer', border: 'none',
+          background: s.screen === j.id ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.12)', color: '#f8f4f4',
+        },
+        pick: async () => {
+          if (this.socket) this.socket.close();
+          if (j.id === 'lobby') { this.setState({ screen: 'lobby', role: 'candidate', conn: 'offline' }); this.previewLobby(); return; }
+          if (j.id === 'review') {
+            const list = s.sessions || await s.api.listSessions();
+            const ended = list.find((x) => x.state === 'ended') || list[0];
+            const [doc, audit] = await Promise.all([s.api.getCanvas(ended.id), s.api.auditTrail(ended.id)]);
+            this.setState({ screen: 'review', session: ended, doc: doc.doc, audit, role: 'interviewer', conn: 'offline' });
+            return;
+          }
+          this.setState({ screen: j.id, role: 'interviewer', conn: 'offline' });
+          if (j.id === 'dashboard') this.loadSessions();
+        },
+      })),
+    };
+  }
+}
+
+</script>
+</body>
+</html>
