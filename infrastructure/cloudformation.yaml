@@ -174,10 +174,10 @@ Resources:
           systemctl enable --now docker
 
           DATA_VOLUME_SERIAL="${ApplicationDataVolume}"
-          DATA_VOLUME_SERIAL=$$(echo "$DATA_VOLUME_SERIAL" | tr -d '-')
+          DATA_VOLUME_SERIAL=$(echo "$DATA_VOLUME_SERIAL" | tr -d '-')
           DATA_DEVICE=""
-          for attempt in $$(seq 1 60); do
-            DATA_DEVICE=$$(lsblk --nodeps --noheadings --output NAME,SERIAL | awk -v serial="$DATA_VOLUME_SERIAL" '$$2 == serial {print "/dev/" $$1}')
+          for attempt in $(seq 1 60); do
+            DATA_DEVICE=$(lsblk --nodeps --noheadings --output NAME,SERIAL | awk -v serial="$DATA_VOLUME_SERIAL" '$2 == serial {print "/dev/" $1}')
             if [ -n "$DATA_DEVICE" ]; then
               break
             fi
@@ -188,7 +188,7 @@ Resources:
           if ! blkid "$DATA_DEVICE"; then
             mkfs.xfs "$DATA_DEVICE"
           fi
-          DATA_UUID=$$(blkid -s UUID -o value "$DATA_DEVICE")
+          DATA_UUID=$(blkid -s UUID -o value "$DATA_DEVICE")
           mkdir -p /data
           if ! grep -q "UUID=$DATA_UUID" /etc/fstab; then
             echo "UUID=$DATA_UUID /data xfs defaults,nofail 0 2" >> /etc/fstab
@@ -199,10 +199,10 @@ Resources:
           IMAGE_URI="${ContainerRepository.RepositoryUri}:${ImageTag}"
           docker pull "$IMAGE_URI"
 
-          TOKEN=$$(curl --fail --silent --show-error --request PUT --header "X-aws-ec2-metadata-token-ttl-seconds: 300" http://169.254.169.254/latest/api/token)
+          TOKEN=$(curl --fail --silent --show-error --request PUT --header "X-aws-ec2-metadata-token-ttl-seconds: 300" http://169.254.169.254/latest/api/token)
           PUBLIC_IP=""
-          for attempt in $$(seq 1 60); do
-            PUBLIC_IP=$$(curl --fail --silent --show-error --header "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4 || true)
+          for attempt in $(seq 1 60); do
+            PUBLIC_IP=$(curl --fail --silent --show-error --header "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4 || true)
             if [ -n "$PUBLIC_IP" ]; then
               break
             fi

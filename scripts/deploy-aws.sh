@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
 TEMPLATE_FILE="${PROJECT_DIRECTORY}/infrastructure/cloudformation.yaml"
+REMOTE_DEPLOY_FILE="${PROJECT_DIRECTORY}/scripts/remote-deploy.sh"
 
 AWS_REGION="${AWS_REGION:-$(aws configure get region)}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
@@ -62,6 +63,37 @@ aws cloudformation deploy \
   --no-fail-on-empty-changeset
 
 APPLICATION_URL="$(aws cloudformation describe-stacks --region "${AWS_REGION}" --stack-name "${STACK_NAME}" --query "Stacks[0].Outputs[?OutputKey=='ApplicationUrl'].OutputValue | [0]" --output text)"
+INSTANCE_ID="$(aws cloudformation describe-stacks --region "${AWS_REGION}" --stack-name "${STACK_NAME}" --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue | [0]" --output text)"
+DATA_VOLUME_ID="$(aws cloudformation describe-stacks --region "${AWS_REGION}" --stack-name "${STACK_NAME}" --query "Stacks[0].Outputs[?OutputKey=='DataVolumeId'].OutputValue | [0]" --output text)"
+
+echo "Waiting for Systems Manager on ${INSTANCE_ID}..."
+for attempt in $(seq 1 60); do
+  PING_STATUS="$(aws ssm describe-instance-information --region "${AWS_REGION}" --filters "Key=InstanceIds,Values=${INSTANCE_ID}" --query 'InstanceInformationList[0].PingStatus' --output text)"
+  if [[ "${PING_STATUS}" == "Online" ]]; then
+    break
+  fi
+  sleep 5
+done
+if [[ "${PING_STATUS:-}" != "Online" ]]; then
+  echo "Systems Manager did not become ready on ${INSTANCE_ID}." >&2
+  exit 1
+fi
+
+REMOTE_SCRIPT_BASE64="$(base64 < "${REMOTE_DEPLOY_FILE}" | tr -d '\n')"
+REMOTE_COMMAND="echo ${REMOTE_SCRIPT_BASE64} | base64 --decode | AWS_REGION=${AWS_REGION} DATA_VOLUME_ID=${DATA_VOLUME_ID} IMAGE_URI=${REPOSITORY_URI}:${IMAGE_TAG} PUBLIC_BASE_URL=${APPLICATION_URL} bash"
+COMMAND_ID="$(aws ssm send-command \
+  --region "${AWS_REGION}" \
+  --instance-ids "${INSTANCE_ID}" \
+  --document-name AWS-RunShellScript \
+  --parameters "{\"commands\":[\"${REMOTE_COMMAND}\"]}" \
+  --query 'Command.CommandId' \
+  --output text)"
+aws ssm wait command-executed --region "${AWS_REGION}" --command-id "${COMMAND_ID}" --instance-id "${INSTANCE_ID}" || true
+COMMAND_STATUS="$(aws ssm get-command-invocation --region "${AWS_REGION}" --command-id "${COMMAND_ID}" --instance-id "${INSTANCE_ID}" --query Status --output text)"
+if [[ "${COMMAND_STATUS}" != "Success" ]]; then
+  aws ssm get-command-invocation --region "${AWS_REGION}" --command-id "${COMMAND_ID}" --instance-id "${INSTANCE_ID}" --output json >&2
+  exit 1
+fi
 
 echo "Waiting for ${APPLICATION_URL}/health..."
 for attempt in $(seq 1 60); do

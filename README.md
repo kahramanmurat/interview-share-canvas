@@ -145,8 +145,9 @@ Deploy to the AWS CLI's configured region:
 ```
 
 The script builds a Linux AMD64 image, pushes it to ECR, deploys
-`infrastructure/cloudformation.yaml`, waits for `/health`, and prints the public
-URL. Optional settings include:
+`infrastructure/cloudformation.yaml`, uses Systems Manager to apply the selected
+image idempotently, waits for `/health`, and prints the public URL. Optional
+settings include:
 
 ```bash
 AWS_REGION=us-east-1 \
