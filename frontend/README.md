@@ -11,6 +11,17 @@ make run
 # then open http://127.0.0.1:8091/interview-platform.dc.html
 ```
 
+Build the production static files with Node:
+
+```bash
+cd frontend
+npm ci
+npm run build
+```
+
+The build is written to `frontend/dist`. The repository `Dockerfile` copies that
+directory into the Python runtime image, where FastAPI serves it alongside the API.
+
 ## Files
 
 | File | What it is |
