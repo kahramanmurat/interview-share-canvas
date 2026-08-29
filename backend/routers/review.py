@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from ..auth import Principal
 from ..dependencies import current_user, get_store
 from ..models import AuditEvent, CanvasDocument, ExportResponse, ExportSession
-from ..store import InMemoryStore, utc_now
+from ..store import DatabaseStore, utc_now
 from .helpers import require_session_member
 
 
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/v1/sessions", tags=["Review"])
 def export_json(
     id: str,
     principal: Principal = Depends(current_user),
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> dict:
     with store.lock:
         session, _ = require_session_member(store, id, principal)
@@ -41,7 +41,7 @@ def export_json(
 def audit_trail(
     id: str,
     principal: Principal = Depends(current_user),
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> list[dict]:
     with store.lock:
         require_session_member(store, id, principal)

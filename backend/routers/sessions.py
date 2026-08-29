@@ -15,7 +15,7 @@ from ..models import (
     Session,
     UpdateSessionRequest,
 )
-from ..store import InMemoryStore, utc_now
+from ..store import DatabaseStore, utc_now
 from .helpers import require_owner, require_session_member
 
 
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/v1/sessions", tags=["Sessions"])
 @router.get("", response_model=list[Session], operation_id="listSessions")
 def list_sessions(
     principal: Principal = Depends(current_user),
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> list[dict]:
     with store.lock:
         sessions = store.visible_sessions(principal.user_id or "")
@@ -42,7 +42,7 @@ def list_sessions(
 def create_session(
     payload: CreateSessionRequest,
     principal: Principal = Depends(current_user),
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> dict:
     title = payload.title.strip()
     if not title:
@@ -73,7 +73,7 @@ def create_session(
 def get_session(
     id: str,
     principal: Principal = Depends(current_user),
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> dict:
     with store.lock:
         session, _ = require_session_member(store, id, principal)
@@ -85,7 +85,7 @@ def patch_session(
     id: str,
     payload: UpdateSessionRequest,
     principal: Principal = Depends(current_user),
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> dict:
     with store.lock:
         session = require_owner(store, id, principal)
@@ -110,7 +110,7 @@ def patch_session(
 def start_session(
     id: str,
     principal: Principal = Depends(current_user),
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> dict:
     with store.lock:
         session = require_owner(store, id, principal)
@@ -127,7 +127,7 @@ def start_session(
 def end_session(
     id: str,
     principal: Principal = Depends(current_user),
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> dict:
     with store.lock:
         session = require_owner(store, id, principal)
@@ -150,7 +150,7 @@ def end_session(
 def duplicate_session(
     id: str,
     principal: Principal = Depends(current_user),
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> dict:
     with store.lock:
         source = require_owner(store, id, principal)
@@ -170,30 +170,15 @@ def duplicate_session(
 async def delete_session(
     id: str,
     principal: Principal = Depends(current_user),
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> OkResponse:
-    """Permanently delete an interview and its dependent in-memory records."""
+    """Permanently delete an interview and its dependent database records."""
 
     with store.lock:
         require_owner(store, id, principal)
         connections = list(store.rooms.pop(id, set()))
-        participant_ids = {
-            participant_id
-            for participant_id, participant in store.participants.items()
-            if participant.session_id == id
-        }
-        for participant_id in participant_ids:
-            store.participants.pop(participant_id, None)
-        for link_id, link in list(store.guest_links.items()):
-            if link.session_id == id:
-                store.guest_links.pop(link_id, None)
-        for token_hash, token in list(store.collab_tokens.items()):
-            if token.session_id == id or token.participant_id in participant_ids:
-                store.collab_tokens.pop(token_hash, None)
-        store.audit[:] = [event for event in store.audit if event.session_id != id]
         store.presence.pop(id, None)
-        store.canvases.pop(id, None)
-        store.sessions.pop(id, None)
+        store.delete_session_records(id)
 
     for connection in connections:
         try:
@@ -213,7 +198,7 @@ def remove_participant(
     id: str,
     participantId: str,
     principal: Principal = Depends(current_user),
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> OkResponse:
     with store.lock:
         require_owner(store, id, principal)

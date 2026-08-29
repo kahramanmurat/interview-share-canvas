@@ -82,7 +82,7 @@ class Principal:
     role: str | None = None
 
 
-def authenticate_token(raw_token: str | None, store: "InMemoryStore") -> Principal | None:
+def authenticate_token(raw_token: str | None, store: "DatabaseStore") -> Principal | None:
     if not raw_token:
         return None
 
@@ -125,4 +125,4 @@ def require_principal(principal: Principal | None) -> Principal:
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .store import InMemoryStore
+    from .store import DatabaseStore

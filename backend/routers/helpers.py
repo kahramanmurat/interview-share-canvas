@@ -7,10 +7,10 @@ from typing import Any
 from ..auth import Principal
 from ..errors import APIError
 from ..models import CanvasDocument
-from ..store import InMemoryStore, SessionRecord
+from ..store import DatabaseStore, SessionRecord
 
 
-def get_session_or_404(store: InMemoryStore, session_id: str) -> SessionRecord:
+def get_session_or_404(store: DatabaseStore, session_id: str) -> SessionRecord:
     session = store.sessions.get(session_id)
     if session is None:
         raise APIError("session_not_found", "That interview no longer exists.", 404)
@@ -18,7 +18,7 @@ def get_session_or_404(store: InMemoryStore, session_id: str) -> SessionRecord:
 
 
 def principal_role(
-    store: InMemoryStore,
+    store: DatabaseStore,
     session: SessionRecord,
     principal: Principal,
 ) -> str | None:
@@ -35,7 +35,7 @@ def principal_role(
 
 
 def require_session_member(
-    store: InMemoryStore,
+    store: DatabaseStore,
     session_id: str,
     principal: Principal,
 ) -> tuple[SessionRecord, str]:
@@ -47,7 +47,7 @@ def require_session_member(
 
 
 def require_owner(
-    store: InMemoryStore,
+    store: DatabaseStore,
     session_id: str,
     principal: Principal,
 ) -> SessionRecord:

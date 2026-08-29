@@ -20,7 +20,7 @@ from ..models import (
     JoinResponse,
     OkResponse,
 )
-from ..store import GuestLinkRecord, InMemoryStore, SessionRecord, utc_now
+from ..store import DatabaseStore, GuestLinkRecord, SessionRecord, utc_now
 from .helpers import get_session_or_404, require_owner
 
 
@@ -49,7 +49,7 @@ def _is_expired(value: datetime | None) -> bool:
 
 
 def _valid_link_and_session(
-    store: InMemoryStore,
+    store: DatabaseStore,
     token: str,
 ) -> tuple[GuestLinkRecord, SessionRecord]:
     _valid_token_path(token)
@@ -82,7 +82,7 @@ def create_guest_link(
     id: str,
     payload: CreateGuestLinkRequest | None = None,
     principal: Principal = Depends(current_user),
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> dict:
     options = payload or CreateGuestLinkRequest()
     if options.expires_at is not None and _is_expired(options.expires_at):
@@ -126,7 +126,7 @@ def revoke_guest_link(
     id: str,
     linkId: str,
     principal: Principal = Depends(current_user),
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> OkResponse:
     with store.lock:
         require_owner(store, id, principal)
@@ -146,7 +146,7 @@ def revoke_guest_link(
 )
 def preview_join(
     token: str = Path(min_length=32, max_length=32, pattern=r"^[A-Fa-f0-9]{32}$"),
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> dict:
     with store.lock:
         link, session = _valid_link_and_session(store, token)
@@ -169,7 +169,7 @@ def preview_join(
 def join_session(
     payload: JoinRequest,
     token: str = Path(min_length=32, max_length=32, pattern=r"^[A-Fa-f0-9]{32}$"),
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> dict:
     if len(payload.display_name.strip()) < 2:
         raise APIError("name_required", "Enter the name your interviewer will see.", 400)

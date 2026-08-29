@@ -1,3 +1,6 @@
+.env
+*.db
+*.db-*
 .venv/
 __pycache__/
 *.py[cod]

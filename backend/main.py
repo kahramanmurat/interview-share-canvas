@@ -14,19 +14,19 @@ from .errors import register_exception_handlers
 from .routers import collaboration, guest, sessions
 from .routers import auth as auth_router
 from .routers import canvas, review
-from .store import InMemoryStore
+from .store import DatabaseStore
 
 
 FRONTEND_DIRECTORY = Path(__file__).resolve().parents[1] / "frontend"
 
 
-def create_app(store: InMemoryStore | None = None) -> FastAPI:
+def create_app(store: DatabaseStore | None = None) -> FastAPI:
     application = FastAPI(
         title="Interview Share Canvas API",
         version="1.0.0",
         description="Backend for collaborative system-design interviews.",
     )
-    application.state.store = store if store is not None else InMemoryStore()
+    application.state.store = store if store is not None else DatabaseStore()
 
     configured_origins = os.getenv(
         "CORS_ORIGINS",
@@ -74,4 +74,4 @@ def create_app(store: InMemoryStore | None = None) -> FastAPI:
 
 
 app = create_app()
-store: InMemoryStore = app.state.store
+store: DatabaseStore = app.state.store

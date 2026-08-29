@@ -15,7 +15,7 @@ from ..models import (
     PasswordLoginRequest,
     PasswordLoginResponse,
 )
-from ..store import InMemoryStore, UserRecord
+from ..store import DatabaseStore, UserRecord
 
 
 router = APIRouter(prefix="/v1/auth", tags=["Authentication"])
@@ -27,7 +27,7 @@ def _display_name_for_email(email: str) -> str:
     return " ".join(word[:1].upper() + word[1:] for word in words if word) or "Interviewer"
 
 
-def _set_session_cookie(response: Response, store: InMemoryStore, user: UserRecord) -> str:
+def _set_session_cookie(response: Response, store: DatabaseStore, user: UserRecord) -> str:
     raw_token = store.issue_session_token(user.id)
     response.set_cookie(
         key="session",
@@ -47,7 +47,7 @@ def _set_session_cookie(response: Response, store: InMemoryStore, user: UserReco
 def request_magic_link(
     payload: MagicLinkRequest,
     response: Response,
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> MagicLinkResponse:
     email = str(payload.email).lower()
     with store.lock:
@@ -71,7 +71,7 @@ def request_magic_link(
 def password_login(
     payload: PasswordLoginRequest,
     response: Response,
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> PasswordLoginResponse:
     """Local password login for API clients; the contract's UI uses magic links."""
 

@@ -6,10 +6,10 @@ from fastapi import Depends, Request
 from fastapi.security import APIKeyCookie, HTTPAuthorizationCredentials, HTTPBearer
 
 from .auth import Principal, authenticate_token, require_principal, require_user
-from .store import InMemoryStore
+from .store import DatabaseStore
 
 
-def get_store(request: Request) -> InMemoryStore:
+def get_store(request: Request) -> DatabaseStore:
     return request.app.state.store
 
 
@@ -27,7 +27,7 @@ bearer_scheme = HTTPBearer(
 def authenticated_principal(
     session_cookie: str | None = Depends(session_cookie_scheme),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> Principal | None:
     raw_token = credentials.credentials if credentials is not None else session_cookie
     with store.lock:

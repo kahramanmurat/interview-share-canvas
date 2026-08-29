@@ -1,4 +1,4 @@
-"""Minimal in-memory collaboration gateway for the contract's WebSocket events."""
+"""Collaboration gateway backed by durable canvas snapshots."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from ..auth import Principal, authenticate_token
 from ..errors import APIError
 from ..models import CanvasDocument
-from ..store import InMemoryStore, ParticipantRecord, SessionRecord, utc_now
+from ..store import DatabaseStore, ParticipantRecord, SessionRecord, utc_now
 from .helpers import canvas_document_dict, require_session_member, validate_canvas_limits
 
 
@@ -18,7 +18,7 @@ router = APIRouter(tags=["Collaboration"])
 REMOTE_COLORS = ["#ec3013", "#2d5fd0", "#0f8a54"]
 
 
-def _websocket_principal(websocket: WebSocket, store: InMemoryStore) -> Principal | None:
+def _websocket_principal(websocket: WebSocket, store: DatabaseStore) -> Principal | None:
     authorization = websocket.headers.get("authorization", "")
     raw_token: str | None = None
     if authorization.lower().startswith("bearer "):
@@ -28,11 +28,12 @@ def _websocket_principal(websocket: WebSocket, store: InMemoryStore) -> Principa
         raw_token = websocket.query_params.get("access_token")
     if raw_token is None:
         raw_token = websocket.cookies.get("session")
-    return authenticate_token(raw_token, store)
+    with store.lock:
+        return authenticate_token(raw_token, store)
 
 
 def _participant_for_principal(
-    store: InMemoryStore,
+    store: DatabaseStore,
     session: SessionRecord,
     principal: Principal,
 ) -> ParticipantRecord | None:
@@ -49,7 +50,7 @@ def _participant_for_principal(
 
 
 def _presence_snapshot(
-    store: InMemoryStore,
+    store: DatabaseStore,
     session: SessionRecord,
     current_participant_id: str | None,
 ) -> list[dict[str, Any]]:
@@ -79,7 +80,7 @@ def _presence_snapshot(
 
 
 async def _broadcast(
-    store: InMemoryStore,
+    store: DatabaseStore,
     session_id: str,
     message: dict[str, Any],
     *,
@@ -108,7 +109,7 @@ async def _send_error(websocket: WebSocket, error: APIError) -> None:
 
 
 def _persist_update(
-    store: InMemoryStore,
+    store: DatabaseStore,
     session_id: str,
     principal: Principal,
     document: CanvasDocument,
@@ -132,13 +133,16 @@ def _persist_update(
         canvas.doc = canvas_document_dict(document)
         canvas.latest_operation_cursor += 1
         canvas.updated_at = now
-        canvas.operation_ids[client_operation_id] = (canvas.latest_operation_cursor, now)
+        canvas.operation_ids[client_operation_id] = [
+            canvas.latest_operation_cursor,
+            now.isoformat(),
+        ]
         session.updated_at = now
 
 
 @router.websocket("/v1/rooms/{session_id}")
 async def collaboration_room(websocket: WebSocket, session_id: str) -> None:
-    store: InMemoryStore = websocket.app.state.store
+    store: DatabaseStore = websocket.app.state.store
     principal = _websocket_principal(websocket, store)
     if principal is None:
         await websocket.accept()

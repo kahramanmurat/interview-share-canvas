@@ -4,12 +4,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import create_app
-from backend.store import InMemoryStore
+from backend.store import DatabaseStore
 
 
 @pytest.fixture
 def app():
-    return create_app(InMemoryStore(seed=True))
+    store = DatabaseStore("sqlite+pysqlite:///:memory:", seed=True)
+    application = create_app(store)
+    yield application
+    store.close()
 
 
 @pytest.fixture

@@ -1,4 +1,4 @@
-"""Thread-safe in-memory persistence and seeded demo data."""
+"""SQLAlchemy persistence boundary and seeded demo data."""
 
 from __future__ import annotations
 
@@ -6,10 +6,30 @@ import copy
 import hmac
 import os
 import secrets
-from dataclasses import dataclass, field
+from collections.abc import Iterator, MutableMapping
+from contextlib import AbstractContextManager
 from datetime import datetime, timedelta, timezone
 from threading import RLock
-from typing import Any
+from typing import Any, Generic, TypeVar
+
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    create_engine,
+    event,
+    func,
+    or_,
+    select,
+)
+from sqlalchemy.engine import Engine
+from sqlalchemy.ext.mutable import MutableDict
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, scoped_session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from .auth import (
     DEMO_USER_EMAIL,
@@ -28,89 +48,115 @@ def days_ago(days: int) -> datetime:
     return utc_now() - timedelta(days=days)
 
 
-@dataclass
-class UserRecord:
-    id: str
-    email: str
-    display_name: str
-    organization_id: str | None
-    password_hash: str
-    created_at: datetime
+class Base(DeclarativeBase):
+    pass
 
 
-@dataclass
-class SessionRecord:
-    id: str
-    owner_user_id: str
-    title: str
-    prompt: str
-    state: str
-    candidate_editing_enabled: bool
-    cursors_visible: bool
-    duration_minutes: int
-    scheduled_at: datetime | None
-    started_at: datetime | None
-    ended_at: datetime | None
-    created_at: datetime
-    updated_at: datetime
+class UserRecord(Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(200))
+    organization_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    password_hash: Mapped[str] = mapped_column(String(512))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
-@dataclass
-class ParticipantRecord:
-    id: str
-    session_id: str
-    user_id: str | None
-    display_name: str
-    role: str
-    joined_at: datetime
-    left_at: datetime | None
+class SessionRecord(Base):
+    __tablename__ = "interview_sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    state: Mapped[str] = mapped_column(String(32), index=True)
+    candidate_editing_enabled: Mapped[bool] = mapped_column(Boolean)
+    cursors_visible: Mapped[bool] = mapped_column(Boolean)
+    duration_minutes: Mapped[int] = mapped_column(Integer)
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
-@dataclass
-class GuestLinkRecord:
-    id: str
-    session_id: str
-    token_hash: str
-    role_granted: str
-    expires_at: datetime | None
-    max_uses: int | None
-    revoked_at: datetime | None
-    created_at: datetime
-    use_count: int = 0
+class ParticipantRecord(Base):
+    __tablename__ = "participants"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("interview_sessions.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    display_name: Mapped[str] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(String(32))
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
-@dataclass
-class CanvasRecord:
-    id: str
-    session_id: str
-    schema_version: int
-    latest_operation_cursor: int
-    updated_at: datetime
-    doc: dict[str, Any]
-    operation_ids: dict[str, tuple[int, datetime]] = field(default_factory=dict)
+class GuestLinkRecord(Base):
+    __tablename__ = "guest_links"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("interview_sessions.id", ondelete="CASCADE"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    role_granted: Mapped[str] = mapped_column(String(32))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    max_uses: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    use_count: Mapped[int] = mapped_column(Integer, default=0)
 
 
-@dataclass
-class AuditRecord:
-    id: str
-    session_id: str
-    action: str
-    at: datetime
+class CanvasRecord(Base):
+    __tablename__ = "canvases"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("interview_sessions.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    schema_version: Mapped[int] = mapped_column(Integer)
+    latest_operation_cursor: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    doc: Mapped[dict[str, Any]] = mapped_column(MutableDict.as_mutable(JSON))
+    operation_ids: Mapped[dict[str, list[Any]]] = mapped_column(
+        MutableDict.as_mutable(JSON), default=dict
+    )
 
 
-@dataclass
-class SessionTokenRecord:
-    token_hash: str
-    user_id: str
-    expires_at: datetime
+class AuditRecord(Base):
+    __tablename__ = "audit_events"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("interview_sessions.id", ondelete="CASCADE"), index=True
+    )
+    action: Mapped[str] = mapped_column(String(64))
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
-@dataclass
-class CollabTokenRecord:
-    token_hash: str
-    session_id: str
-    participant_id: str
-    expires_at: datetime
+class SessionTokenRecord(Base):
+    __tablename__ = "session_tokens"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class CollabTokenRecord(Base):
+    __tablename__ = "collaboration_tokens"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("interview_sessions.id", ondelete="CASCADE"), index=True
+    )
+    participant_id: Mapped[str] = mapped_column(
+        ForeignKey("participants.id", ondelete="CASCADE"), index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
 PALETTE_SEED: dict[str, dict[str, list[dict[str, Any]]]] = {
@@ -140,26 +186,139 @@ TEMPLATES = [
 ]
 
 
-class InMemoryStore:
-    """A small persistence boundary that can be replaced by a database later."""
+RecordT = TypeVar("RecordT", bound=Base)
 
-    def __init__(self, *, seed: bool = True, public_base_url: str | None = None) -> None:
-        self.lock = RLock()
+
+class EntityMapping(MutableMapping[str, RecordT], Generic[RecordT]):
+    """Small dictionary-compatible facade over a SQLAlchemy table."""
+
+    def __init__(self, store: "DatabaseStore", model: type[RecordT], key_column: Any) -> None:
+        self.store = store
+        self.model = model
+        self.key_column = key_column
+
+    def __getitem__(self, key: str) -> RecordT:
+        record = self.store.db.scalar(select(self.model).where(self.key_column == key))
+        if record is None:
+            raise KeyError(key)
+        return record
+
+    def __setitem__(self, key: str, value: RecordT) -> None:
+        if getattr(value, self.key_column.key) != key:
+            raise ValueError("Mapping key does not match record key.")
+        self.store.db.add(value)
+        self.store.db.flush()
+
+    def __delitem__(self, key: str) -> None:
+        record = self[key]
+        self.store.db.delete(record)
+        self.store.db.flush()
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.store.db.scalars(select(self.key_column)).all())
+
+    def __len__(self) -> int:
+        return int(self.store.db.scalar(select(func.count()).select_from(self.model)) or 0)
+
+    def values(self) -> list[RecordT]:  # type: ignore[override]
+        return list(self.store.db.scalars(select(self.model)).all())
+
+    def items(self) -> list[tuple[str, RecordT]]:  # type: ignore[override]
+        return [(getattr(record, self.key_column.key), record) for record in self.values()]
+
+
+class StoreLock(AbstractContextManager["StoreLock"]):
+    """Serialize writes and commit or roll back each store operation."""
+
+    def __init__(self, store: "DatabaseStore") -> None:
+        self.store = store
+
+    def __enter__(self) -> "StoreLock":
+        self.store._mutex.acquire()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> bool:
+        try:
+            if exc_type is None:
+                self.store.db.commit()
+                self.store.db.expire_all()
+            else:
+                self.store.db.rollback()
+        finally:
+            self.store._mutex.release()
+        return False
+
+
+def _sqlite_engine_options(database_url: str) -> dict[str, Any]:
+    if not database_url.startswith("sqlite"):
+        return {}
+    options: dict[str, Any] = {"connect_args": {"check_same_thread": False}}
+    if database_url.endswith(":memory:") or database_url in {"sqlite://", "sqlite+pysqlite://"}:
+        options["poolclass"] = StaticPool
+    return options
+
+
+def _ensure_utc(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+class DatabaseStore:
+    """Database-agnostic SQLAlchemy persistence boundary."""
+
+    def __init__(
+        self,
+        database_url: str | None = None,
+        *,
+        seed: bool = True,
+        public_base_url: str | None = None,
+    ) -> None:
+        self.database_url = database_url or os.getenv(
+            "DATABASE_URL", "sqlite+pysqlite:///./interview-share-canvas.db"
+        )
+        self.engine: Engine = create_engine(
+            self.database_url,
+            pool_pre_ping=True,
+            **_sqlite_engine_options(self.database_url),
+        )
+        if self.engine.dialect.name == "sqlite":
+            @event.listens_for(self.engine, "connect")
+            def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.close()
+
+        Base.metadata.create_all(self.engine)
+        self._session_factory = scoped_session(
+            sessionmaker(bind=self.engine, expire_on_commit=False, autoflush=True)
+        )
+        self._mutex = RLock()
+        self.lock = StoreLock(self)
         self.public_base_url = (
             public_base_url or os.getenv("PUBLIC_BASE_URL", "https://interviews.northwind.dev")
         ).rstrip("/")
-        self.users: dict[str, UserRecord] = {}
-        self.sessions: dict[str, SessionRecord] = {}
-        self.participants: dict[str, ParticipantRecord] = {}
-        self.guest_links: dict[str, GuestLinkRecord] = {}
-        self.canvases: dict[str, CanvasRecord] = {}
-        self.audit: list[AuditRecord] = []
-        self.session_tokens: dict[str, SessionTokenRecord] = {}
-        self.collab_tokens: dict[str, CollabTokenRecord] = {}
+        self.users = EntityMapping(self, UserRecord, UserRecord.id)
+        self.sessions = EntityMapping(self, SessionRecord, SessionRecord.id)
+        self.participants = EntityMapping(self, ParticipantRecord, ParticipantRecord.id)
+        self.guest_links = EntityMapping(self, GuestLinkRecord, GuestLinkRecord.id)
+        self.canvases = EntityMapping(self, CanvasRecord, CanvasRecord.session_id)
+        self.session_tokens = EntityMapping(self, SessionTokenRecord, SessionTokenRecord.token_hash)
+        self.collab_tokens = EntityMapping(self, CollabTokenRecord, CollabTokenRecord.token_hash)
+        # Active sockets and transient cursor positions are transport state,
+        # not durable application records.
         self.rooms: dict[str, set[Any]] = {}
         self.presence: dict[str, dict[str, dict[str, Any]]] = {}
-        if seed:
-            self.seed_demo_data()
+
+        if seed and self.db.scalar(select(func.count()).select_from(UserRecord)) == 0:
+            with self.lock:
+                self.seed_demo_data()
+
+    @property
+    def db(self):
+        return self._session_factory()
+
+    def close(self) -> None:
+        self._session_factory.remove()
+        self.engine.dispose()
 
     def new_id(self, prefix: str) -> str:
         return f"{prefix}_{secrets.token_hex(4)}"
@@ -171,7 +330,8 @@ class InMemoryStore:
             action=action,
             at=at or utc_now(),
         )
-        self.audit.append(event)
+        self.db.add(event)
+        self.db.flush()
         return event
 
     def create_user(
@@ -199,7 +359,7 @@ class InMemoryStore:
 
     def find_user_by_email(self, email: str) -> UserRecord | None:
         normalized_email = email.strip().lower()
-        return next((u for u in self.users.values() if u.email == normalized_email), None)
+        return self.db.scalar(select(UserRecord).where(UserRecord.email == normalized_email))
 
     def create_session(
         self,
@@ -301,9 +461,11 @@ class InMemoryStore:
         }
 
     def public_session(self, session: SessionRecord) -> dict[str, Any]:
-        participants = [
-            p for p in self.participants.values() if p.session_id == session.id
-        ]
+        participants = list(
+            self.db.scalars(
+                select(ParticipantRecord).where(ParticipantRecord.session_id == session.id)
+            ).all()
+        )
         return {
             "id": session.id,
             "owner_user_id": session.owner_user_id,
@@ -335,8 +497,11 @@ class InMemoryStore:
         }
 
     def public_audit(self, session_id: str) -> list[dict[str, Any]]:
-        events = [event for event in self.audit if event.session_id == session_id]
-        events.sort(key=lambda event: event.at, reverse=True)
+        events = self.db.scalars(
+            select(AuditRecord)
+            .where(AuditRecord.session_id == session_id)
+            .order_by(AuditRecord.at.desc())
+        ).all()
         return [
             {"id": event.id, "session_id": event.session_id, "action": event.action, "at": event.at}
             for event in events
@@ -356,8 +521,7 @@ class InMemoryStore:
         record = self.session_tokens.get(digest)
         if record is None:
             return None
-        if record.expires_at <= utc_now():
-            self.session_tokens.pop(digest, None)
+        if _ensure_utc(record.expires_at) <= utc_now():
             return None
         return record
 
@@ -382,42 +546,59 @@ class InMemoryStore:
         record = self.collab_tokens.get(digest)
         if record is None:
             return None
-        if record.expires_at <= utc_now():
-            self.collab_tokens.pop(digest, None)
+        if _ensure_utc(record.expires_at) <= utc_now():
             return None
         return record
 
     def find_guest_link(self, raw_token: str) -> GuestLinkRecord | None:
         digest = token_hash(raw_token)
-        for link in self.guest_links.values():
-            if hmac.compare_digest(link.token_hash, digest):
-                return link
-        return None
+        link = self.db.scalar(select(GuestLinkRecord).where(GuestLinkRecord.token_hash == digest))
+        return link if link is not None and hmac.compare_digest(link.token_hash, digest) else None
 
     def active_participants(self, session_id: str) -> list[ParticipantRecord]:
-        return [
-            p for p in self.participants.values()
-            if p.session_id == session_id and p.left_at is None
-        ]
+        return list(
+            self.db.scalars(
+                select(ParticipantRecord).where(
+                    ParticipantRecord.session_id == session_id,
+                    ParticipantRecord.left_at.is_(None),
+                )
+            ).all()
+        )
 
     def user_role_for_session(self, user_id: str, session_id: str) -> str | None:
         session = self.sessions.get(session_id)
         if session is not None and session.owner_user_id == user_id:
             return "owner"
-        for participant in self.participants.values():
-            if (
-                participant.session_id == session_id
-                and participant.user_id == user_id
-                and participant.left_at is None
-            ):
-                return participant.role
-        return None
+        participant = self.db.scalar(
+            select(ParticipantRecord).where(
+                ParticipantRecord.session_id == session_id,
+                ParticipantRecord.user_id == user_id,
+                ParticipantRecord.left_at.is_(None),
+            )
+        )
+        return participant.role if participant is not None else None
 
     def visible_sessions(self, user_id: str) -> list[SessionRecord]:
-        return [
-            session for session in self.sessions.values()
-            if self.user_role_for_session(user_id, session.id) is not None
-        ]
+        member_session_ids = select(ParticipantRecord.session_id).where(
+            ParticipantRecord.user_id == user_id,
+            ParticipantRecord.left_at.is_(None),
+        )
+        return list(
+            self.db.scalars(
+                select(SessionRecord).where(
+                    or_(
+                        SessionRecord.owner_user_id == user_id,
+                        SessionRecord.id.in_(member_session_ids),
+                    )
+                )
+            ).all()
+        )
+
+    def delete_session_records(self, session_id: str) -> None:
+        session = self.sessions.get(session_id)
+        if session is not None:
+            self.db.delete(session)
+            self.db.flush()
 
     def seed_demo_data(self) -> None:
         owner = self.create_user(

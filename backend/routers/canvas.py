@@ -10,7 +10,7 @@ from ..auth import Principal
 from ..dependencies import current_principal, get_store
 from ..errors import APIError
 from ..models import CanvasDocument, CanvasResponse, SaveCanvasRequest, SaveCanvasResponse
-from ..store import InMemoryStore, utc_now
+from ..store import DatabaseStore, utc_now
 from .helpers import (
     canvas_document_dict,
     require_session_member,
@@ -21,7 +21,7 @@ from .helpers import (
 router = APIRouter(prefix="/v1/sessions", tags=["Canvas"])
 
 
-def _get_canvas(store: InMemoryStore, session_id: str):
+def _get_canvas(store: DatabaseStore, session_id: str):
     canvas = store.canvases.get(session_id)
     if canvas is None:
         raise APIError("canvas_not_found", "The canvas for this interview was not found.", 404)
@@ -46,7 +46,7 @@ def _public_canvas(canvas) -> dict:
 def get_canvas(
     id: str,
     principal: Principal = Depends(current_principal),
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> dict:
     with store.lock:
         require_session_member(store, id, principal)
@@ -58,7 +58,7 @@ def save_canvas(
     id: str,
     payload: SaveCanvasRequest,
     principal: Principal = Depends(current_principal),
-    store: InMemoryStore = Depends(get_store),
+    store: DatabaseStore = Depends(get_store),
 ) -> dict:
     validate_canvas_limits(payload.doc)
     with store.lock:
@@ -84,10 +84,10 @@ def save_canvas(
         canvas.latest_operation_cursor += 1
         canvas.updated_at = now
         if payload.client_operation_id:
-            canvas.operation_ids[payload.client_operation_id] = (
+            canvas.operation_ids[payload.client_operation_id] = [
                 canvas.latest_operation_cursor,
-                now,
-            )
+                now.isoformat(),
+            ]
         session.updated_at = now
         return {
             "operation_cursor": canvas.latest_operation_cursor,
