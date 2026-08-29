@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from .errors import register_exception_handlers
 from .routers import collaboration, guest, sessions
 from .routers import auth as auth_router
 from .routers import canvas, review
 from .store import InMemoryStore
+
+
+FRONTEND_DIRECTORY = Path(__file__).resolve().parents[1] / "frontend"
 
 
 def create_app(store: InMemoryStore | None = None) -> FastAPI:
@@ -48,6 +54,16 @@ def create_app(store: InMemoryStore | None = None) -> FastAPI:
     @application.get("/health", include_in_schema=False)
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @application.get("/", include_in_schema=False)
+    def frontend_index() -> RedirectResponse:
+        return RedirectResponse(url="/interview-platform.dc.html")
+
+    application.mount(
+        "/",
+        StaticFiles(directory=FRONTEND_DIRECTORY),
+        name="frontend",
+    )
 
     return application
 

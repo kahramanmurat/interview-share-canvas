@@ -16,3 +16,13 @@ def test_documented_http_contract_is_registered(app):
             if method == "parameters":
                 continue
             assert method in registered[path]
+
+
+def test_frontend_is_served_by_fastapi(client):
+    root = client.get("/", follow_redirects=False)
+    assert root.status_code == 307
+    assert root.headers["location"] == "/interview-platform.dc.html"
+
+    frontend = client.get("/interview-platform.dc.html")
+    assert frontend.status_code == 200
+    assert "Interview" in frontend.text
