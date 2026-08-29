@@ -42,17 +42,68 @@ sqlite3 data/interview-share-canvas.db
 Docker Compose starts the application and PostgreSQL together:
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
 Open <http://localhost:8091>. PostgreSQL data is retained in the
-`postgres-data` Docker volume. Stop the services with:
+`postgres-data` Docker volume.
+
+Confirm both services are running:
+
+```bash
+docker compose ps
+```
+
+Confirm the backend is connected to PostgreSQL rather than SQLite:
+
+```bash
+docker compose exec app python -c 'from backend.main import store; print(store.engine.dialect.name); print(store.engine.url.render_as_string(hide_password=True))'
+```
+
+The first output line should be `postgresql`. Inspect the stored data with:
+
+```bash
+docker compose exec postgres psql -U interview -d interview_share_canvas
+```
+
+Then run these commands inside `psql`:
+
+```sql
+\conninfo
+\dt
+SELECT COUNT(*) FROM users;
+SELECT COUNT(*) FROM interview_sessions;
+SELECT id, title, state, created_at
+FROM interview_sessions
+ORDER BY created_at DESC;
+```
+
+Create or update an interview at <http://localhost:8091>, then repeat the final
+query to verify that PostgreSQL accepted the change. Exit `psql` with `\q`.
+
+View application and database logs with:
+
+```bash
+docker compose logs -f app postgres
+```
+
+Stop the services with:
 
 ```bash
 docker compose down
 ```
 
-To also delete the PostgreSQL data, run `docker compose down --volumes`.
+To also delete the PostgreSQL data and restore a fresh seeded database on the
+next start, run `docker compose down --volumes`. This permanently deletes the
+current Compose PostgreSQL data.
+
+If an older standalone PostgreSQL container is using host port `5432`, find and
+stop it before starting another host-exposed PostgreSQL container:
+
+```bash
+docker ps
+docker stop interview-canvas-db
+```
 
 For an existing PostgreSQL server, set `DATABASE_URL` before starting the
 backend:
