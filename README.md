@@ -139,18 +139,19 @@ and PostgreSQL stack on port `18091`. It creates separate interviewer and
 candidate browser sessions, changes the candidate canvas, and verifies that the
 interviewer receives the update.
 
-Install Playwright and its Chromium browser once:
+Run the test from the repository root. The target installs the locked Playwright
+dependencies and Chromium before starting the test:
 
 ```bash
-cd e2e
-npm ci
-npm run install:browsers
+make e2e
 ```
 
-Run the end-to-end test from the `e2e` directory:
+Alternatively, run the commands directly:
 
 ```bash
-npm test
+npm --prefix e2e ci
+npm --prefix e2e run install:browsers
+npm --prefix e2e test
 ```
 
 The test uses the dedicated Compose project `interview-share-canvas-e2e`. Its
