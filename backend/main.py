@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .errors import register_exception_handlers
@@ -58,6 +58,11 @@ def create_app(store: InMemoryStore | None = None) -> FastAPI:
     @application.get("/", include_in_schema=False)
     def frontend_index() -> RedirectResponse:
         return RedirectResponse(url="/interview-platform.dc.html")
+
+    @application.get("/join/{token}", include_in_schema=False)
+    def guest_frontend(token: str) -> FileResponse:
+        """Serve the candidate lobby for links created by the API."""
+        return FileResponse(FRONTEND_DIRECTORY / "interview-platform.dc.html")
 
     application.mount(
         "/",

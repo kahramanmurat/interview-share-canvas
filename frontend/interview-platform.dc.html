@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<base href="/">
 <script src="./support.js"></script>
 </head>
 <body>
@@ -48,7 +49,7 @@
           <button class="btn btn-primary" onClick="{{ doSignIn }}" disabled="{{ busy }}">{{ signInLabel }}</button>
           <button class="btn btn-ghost" onClick="{{ goLobbyDemo }}">Join as a candidate instead</button>
         </div>
-        <p class="text-muted" style="font-size: 11px; margin-top: 24px;">Mocked endpoint: <code>POST /v1/auth/magic-link</code></p>
+        <p class="text-muted" style="font-size: 11px; margin-top: 24px;">Live endpoint: <code>POST /v1/auth/magic-link</code></p>
       </div>
     </div>
   </sc-if>
@@ -177,7 +178,7 @@
               <div style="border-left: 2px solid var(--color-accent); padding: 8px 12px; background: var(--color-accent-100); color: var(--color-accent-800); font-size: 13px; margin-bottom: 12px;">{{ error }}</div>
             </sc-if>
             <button class="btn btn-primary btn-block" onClick="{{ doCreate }}" disabled="{{ busy }}">{{ createLabel }}</button>
-            <p class="text-muted" style="font-size: 11px; margin-top: 16px;">Mocked endpoint: <code>POST /v1/sessions</code></p>
+            <p class="text-muted" style="font-size: 11px; margin-top: 16px;">Live endpoint: <code>POST /v1/sessions</code></p>
           </div>
         </div>
       </div>
@@ -204,7 +205,7 @@
           <p class="text-muted" style="font-size: 12px; margin: 0;">Use a desktop browser — Chrome, Edge, Firefox or Safari. Phone editing is not supported.</p>
         </div>
         <button class="btn btn-primary btn-block" onClick="{{ doJoin }}" disabled="{{ busy }}">{{ joinLabel }}</button>
-        <p class="text-muted" style="font-size: 11px; margin-top: 16px;">Mocked endpoints: <code>GET /v1/join/{token}</code> then <code>POST /v1/join/{token}</code></p>
+        <p class="text-muted" style="font-size: 11px; margin-top: 16px;">Live endpoints: <code>GET /v1/join/{token}</code> then <code>POST /v1/join/{token}</code></p>
       </div>
     </div>
   </sc-if>
@@ -685,13 +686,24 @@ class Component extends DCLogic {
   /* ---------------------------------------------------------- lifecycle */
 
   async componentDidMount() {
-    const mod = await import('./mock-backend.js');
+    const mod = await import('./backend-client.js');
     mod.setLatencyScale(this.props.latencyScale ?? 1);
     this.mod = mod;
-    const start = this.props.startScreen || 'dashboard';
-    this.setState({ api: mod.api, user: mod.api.currentUser(), screen: start, role: start === 'lobby' ? 'candidate' : 'interviewer' });
-    if (start === 'dashboard' || start === 'create') this.loadSessions(mod.api);
-    if (start === 'lobby') this.previewLobby(mod.api);
+    const guestToken = mod.guestTokenFromLocation();
+    this.guestToken = guestToken;
+    const start = guestToken ? 'lobby' : (this.props.startScreen || 'dashboard');
+    if (start === 'dashboard' || start === 'create') {
+      try {
+        const auth = await mod.api.signIn(this.state.email);
+        this.setState({ api: mod.api, user: auth.user, screen: start, role: 'interviewer' });
+        this.loadSessions(mod.api);
+      } catch (error) {
+        this.setState({ api: mod.api, screen: 'signin', role: 'interviewer', error: error.message });
+      }
+    } else {
+      this.setState({ api: mod.api, user: null, screen: start, role: start === 'lobby' ? 'candidate' : 'interviewer' });
+      if (start === 'lobby') this.previewLobby(mod.api);
+    }
     this.timer = setInterval(() => this.setState((s) => ({ tick: s.tick + 1 })), 1000);
     window.addEventListener('keydown', this.onKey);
     window.addEventListener('pointerup', this.onSurfaceUp);
@@ -735,7 +747,10 @@ class Component extends DCLogic {
   async openSession(session, opts = {}) {
     const readOnly = !!opts.readOnly || (session.state === 'ended' && this.state.role === 'candidate');
     this.setState({ screen: 'canvas', session, readOnly, selected: [], history: [], future: [], view: { x: 120, y: 60, z: 1 } });
-    const [{ doc }, sess] = await Promise.all([this.state.api.getCanvas(session.id), this.state.api.getSession(session.id)]);
+    const [{ doc }, sess] = await Promise.all([
+      this.state.api.getCanvas(session.id),
+      this.state.role === 'candidate' ? Promise.resolve(session) : this.state.api.getSession(session.id),
+    ]);
     this.setState({ doc, session: sess });
     this.connect(sess);
     setTimeout(this.zoomToFit, 60);
@@ -753,6 +768,10 @@ class Component extends DCLogic {
     sock.on('presence_snapshot', (roster) => this.setState({ roster }));
     sock.on('presence_update', (p) =>
       this.setState((s) => ({ cursors: { ...s.cursors, [p.participant_id]: p } })));
+    sock.on('document_update', (message) => {
+      const remoteDoc = message.operation && message.operation.doc;
+      if (remoteDoc) this.setState({ doc: remoteDoc, saveState: 'saved' });
+    });
     sock.on('resynced', () => this.flash('Reconnected — canvas converged with the server.'));
     sock.on('permission_changed', (m) =>
       this.flash(m.candidate_editing_enabled ? 'Editing unlocked.' : 'Editing locked by the interviewer.'));
@@ -785,8 +804,9 @@ class Component extends DCLogic {
       const s = this.state;
       if (!s.session) return;
       try {
-        if (this.socket) this.socket.send('document_update', { client_operation_id: uid('op') });
-        await s.api.saveCanvas(s.session.id, s.doc, s.role === 'candidate' ? 'candidate' : 'owner');
+        const operationId = uid('op');
+        if (this.socket) this.socket.send('document_update', { client_operation_id: operationId, operation: { doc: s.doc } });
+        await s.api.saveCanvas(s.session.id, s.doc, s.role === 'candidate' ? 'candidate' : 'owner', operationId);
         this.setState({ saveState: 'saved' });
       } catch (e) {
         this.setState({ saveState: 'error' });
@@ -840,13 +860,13 @@ class Component extends DCLogic {
 
   onSurfaceMove = (e) => {
     const s = this.state;
+    const p = this.toWorld(e);
     if (this.socket && s.conn === 'connected' && !this._lastPing) {
       this._lastPing = 1;
       setTimeout(() => { this._lastPing = 0; }, 120);
-      this.socket.send('presence_update', {});
+      this.socket.send('presence_update', { cursor: p, selection: s.selected });
     }
     if (!this.drag) return;
-    const p = this.toWorld(e);
     const d = this.drag;
     if (d.kind === 'pan') {
       this.setState({ view: { ...s.view, x: d.v.x + (e.clientX - d.sx), y: d.v.y + (e.clientY - d.sy) } });
@@ -1203,7 +1223,7 @@ class Component extends DCLogic {
       doJoin: async () => {
         this.setState({ busy: true, lobbyError: '' });
         try {
-          const r = await s.api.join(null, s.lobbyName);
+          const r = await s.api.join(this.guestToken, s.lobbyName);
           this.setState({ busy: false, role: 'candidate', lobbyName: r.participant.display_name });
           await this.openSession(r.session);
         } catch (err) { this.setState({ lobbyError: err.message, busy: false }); }

@@ -24,6 +24,9 @@ def _websocket_principal(websocket: WebSocket, store: InMemoryStore) -> Principa
     if authorization.lower().startswith("bearer "):
         raw_token = authorization[7:].strip()
     if raw_token is None:
+        # Browser WebSocket handshakes cannot set an Authorization header.
+        raw_token = websocket.query_params.get("access_token")
+    if raw_token is None:
         raw_token = websocket.cookies.get("session")
     return authenticate_token(raw_token, store)
 

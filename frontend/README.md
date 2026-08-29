@@ -1,15 +1,14 @@
 # Interview canvas — front-end prototype
 
-A working front end for the system-design interview platform described in `spec.md`.
-Every backend call is mocked in `mock-backend.js`; no server is required to run it.
+A working front end for the system-design interview platform backed by the FastAPI service.
 
 ## Run it
 
-Any static server (the page uses ES modules, so `file://` will not work):
+Run the frontend and API together from the repository root:
 
 ```bash
-python3 -m http.server 8080
-# then open http://localhost:8080/interview-platform.dc.html
+make run
+# then open http://127.0.0.1:8091/interview-platform.dc.html
 ```
 
 ## Files
@@ -17,7 +16,7 @@ python3 -m http.server 8080
 | File | What it is |
 | --- | --- |
 | `interview-platform.dc.html` | The whole front end: six screens, one component. Template + logic class in one file. |
-| `mock-backend.js` | The fake backend. This is the file you replace. |
+| `backend-client.js` | REST and WebSocket client for the FastAPI backend. |
 | `modernist.css` | Design tokens and component classes (colors, type, spacing, buttons, table, dialog). |
 | `support.js` | Rendering runtime for the component file. Not application code. |
 
@@ -30,20 +29,15 @@ The canvas is real: 28-component palette, drag, resize, marquee multi-select, at
 (elbow / straight / curved, labels, dashed), pen, highlighter, eraser, pan, zoom, zoom-to-fit,
 undo/redo, and keyboard shortcuts (`V H C P M E T N`, `⌘Z`, `⇧⌘Z`, `⌘D`, `Delete`).
 
-## Replacing the mock backend
+## Backend integration
 
-Two seams, both in `mock-backend.js`:
-
-1. **`request(kind, fn)`** — every REST call goes through it. Replace the body with
-   `fetch(\`${BASE}/v1/...\`, { credentials: 'include' })` and the whole `api` object is live.
-2. **`openSocket({ sessionId, self })`** — returns `{ status, on, send, close }` and emits the
-   message names from spec §12. Replace with a real `WebSocket` that forwards the same names.
-
-Nothing else in the UI imports anything backend-shaped, so no screen changes.
+`backend-client.js` sends authenticated requests to the same origin and connects to the
+collaboration WebSocket. Interviewer tokens are retained in session storage; candidate
+collaboration tokens are held in memory for the lifetime of the page.
 
 ### Endpoint map (spec §12)
 
-| Mock method | HTTP endpoint | Spec |
+| Client method | HTTP endpoint | Spec |
 | --- | --- | --- |
 | `api.signIn(email)` | `POST /v1/auth/magic-link` | §6.1 |
 | `api.listSessions()` | `GET /v1/sessions` | §6.10 |
@@ -66,25 +60,23 @@ Nothing else in the UI imports anything backend-shaped, so no screen changes.
 
 ### Socket messages (spec §12)
 
-Server → client, emitted by the mock: `room_joined`, `presence_snapshot`, `presence_update`,
+Server → client, handled by the client: `room_joined`, `presence_snapshot`, `presence_update`,
 `permission_changed`, `session_ended`, `ack`, `resynced`, `status`.
 Client → server, accepted by `send()`: `document_update`, `presence_update`, `ping`.
 
-## What the mock deliberately simulates
+## Runtime behavior
 
-- **Latency** — reads 70–190 ms, writes 130–320 ms, scaled by `setLatencyScale()` (exposed as a tweak).
-- **A second participant** — scripted cursor movement and presence for the interviewer view.
 - **Autosave** — debounced 1.2 s writes with saving / saved / not-saved status (§6.8 requires ≤2 s).
 - **Server-side authorization** — `saveCanvas` rejects candidate writes when
   `candidate_editing_enabled` is false and after a session ends (§6.9, acceptance criterion 7).
-- **Reconnect** — `socket.dropConnection(ms)` drops and converges without a reload
+- **Reconnect** — the WebSocket client reconnects automatically; `socket.dropConnection(ms)` exercises it
   (acceptance criterion 5). Triggered from the canvas right panel.
 - **Guest links** — 128-bit tokens, only a hash retained, rotate and revoke (§13).
 - **Limits** — 10 participants per room, 2,000 elements per document (§14).
 
 ## Known gaps
 
-- Single browser tab: convergence between two real clients is not exercised, and there is no CRDT.
+- Collaboration uses last-write-wins snapshots rather than a CRDT, so simultaneous edits can overwrite each other.
 - Undo/redo is snapshot-based and global to the tab, not per-participant (§6.3 allows this for MVP).
 - Groups, layer ordering, copy/paste and full keyboard operation of canvas objects (§6.3, §8) are not built.
 - No PNG/PDF export; JSON export only, as the spec recommends for MVP.

@@ -26,3 +26,10 @@ def test_frontend_is_served_by_fastapi(client):
     frontend = client.get("/interview-platform.dc.html")
     assert frontend.status_code == 200
     assert "Interview" in frontend.text
+
+
+def test_guest_link_route_serves_candidate_frontend(client):
+    response = client.get("/join/0123456789abcdef0123456789abcdef")
+
+    assert response.status_code == 200
+    assert "Interview" in response.text
