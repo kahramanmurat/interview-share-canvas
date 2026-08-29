@@ -207,8 +207,9 @@ aws cloudformation deploy \
 
 `CreateOidcProvider=false` reuses an account-level GitHub provider. Use `true`
 only when `token.actions.githubusercontent.com` is not already registered in the
-AWS account. Configure these GitHub Actions repository variables from the stack
-outputs:
+AWS account. The template defaults include this repository's immutable GitHub
+owner and repository IDs so the role does not trust name reuse. Configure these
+GitHub Actions repository variables from the stack outputs:
 
 - `AWS_REGION`
 - `AWS_ROLE_ARN` from `GitHubRoleArn`

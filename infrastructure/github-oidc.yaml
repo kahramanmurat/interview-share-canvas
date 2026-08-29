@@ -5,9 +5,15 @@ Parameters:
   GitHubOrganization:
     Type: String
     Default: kahramanmurat
+  GitHubOrganizationId:
+    Type: String
+    Default: "1132768"
   GitHubRepository:
     Type: String
     Default: interview-share-canvas
+  GitHubRepositoryId:
+    Type: String
+    Default: "1350826572"
   GitHubBranch:
     Type: String
     Default: main
@@ -108,7 +114,7 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOrganization}/${GitHubRepository}:ref:refs/heads/${GitHubBranch}
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOrganization}@${GitHubOrganizationId}/${GitHubRepository}@${GitHubRepositoryId}:ref:refs/heads/${GitHubBranch}
       Policies:
         - PolicyName: DeployApplication
           PolicyDocument:
