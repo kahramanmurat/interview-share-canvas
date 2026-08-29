@@ -126,6 +126,34 @@ Then open <http://localhost:8091>.
 
 ## Test
 
+Run the backend tests:
+
 ```bash
 uv run pytest
 ```
+
+### End-to-end collaboration test
+
+The Playwright test uses `docker-compose.yaml` to start an isolated application
+and PostgreSQL stack on port `18091`. It creates separate interviewer and
+candidate browser sessions, changes the candidate canvas, and verifies that the
+interviewer receives the update.
+
+Install Playwright and its Chromium browser once:
+
+```bash
+cd e2e
+npm ci
+npm run install:browsers
+```
+
+Run the end-to-end test from the `e2e` directory:
+
+```bash
+npm test
+```
+
+The test uses the dedicated Compose project `interview-share-canvas-e2e`. Its
+containers, network, and PostgreSQL volume are removed automatically after the
+test, including when the test fails. Your regular stack and database are not
+modified.

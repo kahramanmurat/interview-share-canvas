@@ -9,5 +9,6 @@ __pycache__
 .env
 frontend/dist
 frontend/node_modules
+e2e
 Dockerfile*
 README.md

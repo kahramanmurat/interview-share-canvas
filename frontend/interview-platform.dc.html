@@ -336,7 +336,7 @@
         </sc-if>
 
         <div style="flex: 1; position: relative; min-width: 0; overflow: hidden;">
-          <div style="{{ surfaceStyle }}" onPointerDown="{{ onSurfaceDown }}" onPointerMove="{{ onSurfaceMove }}" onPointerUp="{{ onSurfaceUp }}" onWheel="{{ onWheel }}" ref="{{ surfaceRef }}">
+          <div data-testid="canvas-surface" style="{{ surfaceStyle }}" onPointerDown="{{ onSurfaceDown }}" onPointerMove="{{ onSurfaceMove }}" onPointerUp="{{ onSurfaceUp }}" onWheel="{{ onWheel }}" ref="{{ surfaceRef }}">
             <div style="{{ worldStyle }}">
               <svg style="position: absolute; left: -4000px; top: -4000px; width: 12000px; height: 12000px; overflow: visible; pointer-events: none;" viewBox="-4000 -4000 12000 12000">
                 <defs>
@@ -363,7 +363,7 @@
               </svg>
 
               <sc-for list="{{ nodeViews }}" as="n" hint-placeholder-count="0">
-                <div style="{{ n.box }}" onPointerDown="{{ n.onDown }}" onDoubleClick="{{ n.onEdit }}">
+                <div data-testid="canvas-node" style="{{ n.box }}" onPointerDown="{{ n.onDown }}" onDoubleClick="{{ n.onEdit }}">
                   <div style="display: flex; align-items: flex-start; gap: 6px; pointer-events: none;">
                     <span style="{{ n.iconStyle }}">{{ n.icon }}</span>
                     <sc-if value="{{ n.notEditing }}" hint-placeholder-val="{{ true }}">

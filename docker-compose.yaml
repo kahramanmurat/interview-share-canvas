@@ -2,7 +2,7 @@ services:
   app:
     build: .
     ports:
-      - "8091:8091"
+      - "${APP_PORT:-8091}:8091"
     environment:
       DATABASE_URL: postgresql+psycopg://interview:interview@postgres:5432/interview_share_canvas
     depends_on:
