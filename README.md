@@ -124,6 +124,52 @@ make run
 
 Then open <http://localhost:8091>.
 
+## Deploy to AWS with CloudFormation
+
+The AWS deployment provisions an ECR repository, one Amazon Linux EC2 instance,
+an encrypted EBS data volume, an Elastic IP, and IAM access for ECR and Systems
+Manager. The EC2 instance runs the existing Docker image and persists the SQLite
+database on the separate EBS volume.
+
+Prerequisites:
+
+- AWS CLI credentials with CloudFormation, EC2, EBS, ECR, IAM, and SSM access
+- Docker running locally
+- A default VPC with at least one public subnet, or explicit `VPC_ID` and
+  `SUBNET_ID` environment variables
+
+Deploy to the AWS CLI's configured region:
+
+```bash
+./scripts/deploy-aws.sh
+```
+
+The script builds a Linux AMD64 image, pushes it to ECR, deploys
+`infrastructure/cloudformation.yaml`, waits for `/health`, and prints the public
+URL. Optional settings include:
+
+```bash
+AWS_REGION=us-east-1 \
+STACK_NAME=interview-share-canvas \
+INSTANCE_TYPE=t3.micro \
+ALLOWED_HTTP_CIDR=0.0.0.0/0 \
+./scripts/deploy-aws.sh
+```
+
+The stack intentionally exposes only port 80; administration is available with
+AWS Systems Manager Session Manager instead of SSH. The generated endpoint uses
+HTTP. Add a domain, certificate, and HTTPS endpoint before using the application
+for sensitive production interviews.
+
+View the deployed URL later with:
+
+```bash
+aws cloudformation describe-stacks \
+  --stack-name interview-share-canvas \
+  --query "Stacks[0].Outputs[?OutputKey=='ApplicationUrl'].OutputValue" \
+  --output text
+```
+
 ## Test
 
 Run the backend tests:

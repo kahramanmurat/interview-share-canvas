@@ -1,0 +1,256 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Interview Share Canvas on a single EC2 host with durable EBS storage.
+
+Parameters:
+  DeploymentMode:
+    Type: String
+    Default: Bootstrap
+    AllowedValues:
+      - Bootstrap
+      - Deploy
+    Description: Bootstrap creates the ECR repository; Deploy also creates the application host.
+  ImageTag:
+    Type: String
+    Default: latest
+    AllowedPattern: "^[A-Za-z0-9_.-]{1,128}$"
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+  AvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: Must be the Availability Zone containing SubnetId.
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+  DataVolumeSize:
+    Type: Number
+    Default: 10
+    MinValue: 8
+    MaxValue: 1024
+  AllowedHttpCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    AllowedPattern: "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/(?:[0-9]|[12][0-9]|3[0-2])$"
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Conditions:
+  IsDeploy: !Equals [!Ref DeploymentMode, Deploy]
+
+Resources:
+  ContainerRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: !Ref AWS::StackName
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      ImageTagMutability: IMMUTABLE
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep the 20 newest images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 20
+                },
+                "action": {"type": "expire"}
+              }
+            ]
+          }
+
+  ApplicationSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: IsDeploy
+    Properties:
+      GroupDescription: Public HTTP access to Interview Share Canvas
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - Description: Application HTTP traffic
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref AllowedHttpCidr
+      SecurityGroupEgress:
+        - Description: Package, ECR, and Systems Manager access
+          IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-app
+
+  ApplicationRole:
+    Type: AWS::IAM::Role
+    Condition: IsDeploy
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: PullApplicationImage
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: !GetAtt ContainerRepository.Arn
+
+  ApplicationInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Condition: IsDeploy
+    Properties:
+      Roles:
+        - !Ref ApplicationRole
+
+  ApplicationDataVolume:
+    Type: AWS::EC2::Volume
+    Condition: IsDeploy
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone
+      Encrypted: true
+      Size: !Ref DataVolumeSize
+      VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-data
+
+  ApplicationInstance:
+    Type: AWS::EC2::Instance
+    Condition: IsDeploy
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref ApplicationInstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref ApplicationSecurityGroup
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            Encrypted: true
+            VolumeSize: 12
+            VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-app
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+
+          dnf install -y docker xfsprogs
+          systemctl enable --now docker
+
+          DATA_VOLUME_SERIAL="${ApplicationDataVolume}"
+          DATA_VOLUME_SERIAL=$$(echo "$DATA_VOLUME_SERIAL" | tr -d '-')
+          DATA_DEVICE=""
+          for attempt in $$(seq 1 60); do
+            DATA_DEVICE=$$(lsblk --nodeps --noheadings --output NAME,SERIAL | awk -v serial="$DATA_VOLUME_SERIAL" '$$2 == serial {print "/dev/" $$1}')
+            if [ -n "$DATA_DEVICE" ]; then
+              break
+            fi
+            sleep 2
+          done
+          test -b "$DATA_DEVICE"
+
+          if ! blkid "$DATA_DEVICE"; then
+            mkfs.xfs "$DATA_DEVICE"
+          fi
+          DATA_UUID=$$(blkid -s UUID -o value "$DATA_DEVICE")
+          mkdir -p /data
+          if ! grep -q "UUID=$DATA_UUID" /etc/fstab; then
+            echo "UUID=$DATA_UUID /data xfs defaults,nofail 0 2" >> /etc/fstab
+          fi
+          mount /data
+
+          aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.${AWS::URLSuffix}
+          IMAGE_URI="${ContainerRepository.RepositoryUri}:${ImageTag}"
+          docker pull "$IMAGE_URI"
+
+          TOKEN=$$(curl --fail --silent --show-error --request PUT --header "X-aws-ec2-metadata-token-ttl-seconds: 300" http://169.254.169.254/latest/api/token)
+          PUBLIC_IP=""
+          for attempt in $$(seq 1 60); do
+            PUBLIC_IP=$$(curl --fail --silent --show-error --header "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4 || true)
+            if [ -n "$PUBLIC_IP" ]; then
+              break
+            fi
+            sleep 2
+          done
+          test -n "$PUBLIC_IP"
+
+          docker run --detach \
+            --name interview-share-canvas \
+            --restart unless-stopped \
+            --publish 80:8091 \
+            --volume /data:/data \
+            --env PUBLIC_BASE_URL="http://$PUBLIC_IP" \
+            "$IMAGE_URI"
+
+  ApplicationDataVolumeAttachment:
+    Type: AWS::EC2::VolumeAttachment
+    Condition: IsDeploy
+    Properties:
+      Device: /dev/sdf
+      InstanceId: !Ref ApplicationInstance
+      VolumeId: !Ref ApplicationDataVolume
+
+  ApplicationElasticIp:
+    Type: AWS::EC2::EIP
+    Condition: IsDeploy
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref ApplicationInstance
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-app
+
+Outputs:
+  RepositoryUri:
+    Description: ECR repository used by the deployment script.
+    Value: !GetAtt ContainerRepository.RepositoryUri
+  ApplicationUrl:
+    Condition: IsDeploy
+    Description: Public application URL.
+    Value: !Sub http://${ApplicationElasticIp}
+  HealthCheckUrl:
+    Condition: IsDeploy
+    Value: !Sub http://${ApplicationElasticIp}/health
+  InstanceId:
+    Condition: IsDeploy
+    Description: Connect through AWS Systems Manager Session Manager.
+    Value: !Ref ApplicationInstance
+  DataVolumeId:
+    Condition: IsDeploy
+    Value: !Ref ApplicationDataVolume
