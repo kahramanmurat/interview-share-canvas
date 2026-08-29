@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from sqlalchemy import create_engine
+
 from backend.store import DatabaseStore
 
 
@@ -41,3 +43,13 @@ def test_database_url_environment_variable_configures_store(monkeypatch, tmp_pat
     assert store.database_url == configured_url
     assert store.engine.dialect.name == "sqlite"
     store.close()
+
+
+def test_postgres_psycopg_dialect_is_available():
+    engine = create_engine(
+        "postgresql+psycopg://interview:interview@localhost/interview_share_canvas"
+    )
+
+    assert engine.dialect.name == "postgresql"
+    assert engine.dialect.driver == "psycopg"
+    engine.dispose()

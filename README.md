@@ -1,7 +1,7 @@
 # Interview Share Canvas
 
 Collaborative system-design interview canvas with a FastAPI backend, a static
-frontend, and SQLite persistence.
+frontend, and SQLite or PostgreSQL persistence.
 
 ## Run with Docker
 
@@ -35,6 +35,31 @@ Inspect the database locally with:
 
 ```bash
 sqlite3 data/interview-share-canvas.db
+```
+
+## Run with PostgreSQL
+
+Docker Compose starts the application and PostgreSQL together:
+
+```bash
+docker compose up --build
+```
+
+Open <http://localhost:8091>. PostgreSQL data is retained in the
+`postgres-data` Docker volume. Stop the services with:
+
+```bash
+docker compose down
+```
+
+To also delete the PostgreSQL data, run `docker compose down --volumes`.
+
+For an existing PostgreSQL server, set `DATABASE_URL` before starting the
+backend:
+
+```bash
+export DATABASE_URL="postgresql+psycopg://USER:PASSWORD@HOST:5432/DATABASE"
+uv run uvicorn backend.main:app --host 0.0.0.0 --port 8091
 ```
 
 ## Run without Docker
