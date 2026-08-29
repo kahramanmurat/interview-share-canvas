@@ -24,7 +24,8 @@ def create_app(store: InMemoryStore | None = None) -> FastAPI:
 
     configured_origins = os.getenv(
         "CORS_ORIGINS",
-        "http://localhost:8080,http://127.0.0.1:8080",
+        "http://localhost:8080,http://127.0.0.1:8080,"
+        "http://localhost:8091,http://127.0.0.1:8091",
     )
     origins = [origin.strip() for origin in configured_origins.split(",") if origin.strip()]
     application.add_middleware(

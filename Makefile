@@ -3,7 +3,7 @@ SHELL := /bin/bash
 
 HOST ?= 127.0.0.1
 BACKEND_PORT ?= 8000
-FRONTEND_PORT ?= 8081
+FRONTEND_PORT ?= 8091
 PYTHON ?= python3
 
 .PHONY: help setup install backend frontend run dev test check
