@@ -81,11 +81,12 @@ jobs:
         if: always()
         run: docker compose -p "$COMPOSE_PROJECT" down --volumes --remove-orphans
 
-  deploy:
-    name: Deploy to AWS
+  deploy-dev:
+    name: Deploy to dev
     if: github.event_name != 'pull_request'
     needs: compose-tests
     runs-on: ubuntu-latest
+    environment: development
     permissions:
       contents: read
       id-token: write
@@ -99,16 +100,59 @@ jobs:
       - name: Build, publish, and deploy
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
+          STACK_NAME: ${{ vars.AWS_STACK_NAME }}
+          ENVIRONMENT_NAME: dev
+          REPOSITORY_NAME: ${{ vars.AWS_REPOSITORY_NAME }}
           CLOUDFORMATION_ROLE_ARN: ${{ vars.AWS_CLOUDFORMATION_ROLE_ARN }}
+          PUBLISH_IMAGE: "true"
           IMAGE_TAG: ${{ github.sha }}
         run: ./scripts/deploy-aws.sh
       - name: Validate deployment health
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
+          STACK_NAME: ${{ vars.AWS_STACK_NAME }}
         run: |
           application_url=$(aws cloudformation describe-stacks \
             --region "$AWS_REGION" \
-            --stack-name interview-share-canvas \
+            --stack-name "$STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='ApplicationUrl'].OutputValue | [0]" \
+            --output text)
+          curl --fail --show-error --silent --retry 12 --retry-all-errors \
+            --retry-delay 5 "$application_url/health" | grep '"status":"ok"'
+
+  deploy-prod:
+    name: Deploy to production
+    needs: deploy-dev
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Configure AWS credentials through GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Promote the tested image
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          STACK_NAME: ${{ vars.AWS_STACK_NAME }}
+          ENVIRONMENT_NAME: prod
+          REPOSITORY_NAME: ${{ vars.AWS_REPOSITORY_NAME }}
+          CLOUDFORMATION_ROLE_ARN: ${{ vars.AWS_CLOUDFORMATION_ROLE_ARN }}
+          PUBLISH_IMAGE: "false"
+          IMAGE_TAG: ${{ github.sha }}
+        run: ./scripts/deploy-aws.sh
+      - name: Validate deployment health
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          STACK_NAME: ${{ vars.AWS_STACK_NAME }}
+        run: |
+          application_url=$(aws cloudformation describe-stacks \
+            --region "$AWS_REGION" \
+            --stack-name "$STACK_NAME" \
             --query "Stacks[0].Outputs[?OutputKey=='ApplicationUrl'].OutputValue | [0]" \
             --output text)
           curl --fail --show-error --silent --retry 12 --retry-all-errors \
