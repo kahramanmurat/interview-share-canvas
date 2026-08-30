@@ -1,2 +1,0 @@
-# Grafana logs an error for every provisioning directory that does not exist.
-# Empty is fine; missing is not.

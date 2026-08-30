@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: interview-share-canvas
+    type: file
+    updateHomeDashboard: false
+    # Edits made in the browser are kept until the file changes, which then wins.
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

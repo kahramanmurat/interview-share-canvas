@@ -329,7 +329,20 @@ What each one counts, and why it counts that way:
   covered, including the request validation FastAPI does before the route runs.
   Rejected WebSocket document updates are counted the same way.
 
-Useful queries once the local stack is running:
+Grafana has a provisioned dashboard for exactly these four,
+`observability/grafana/provisioning/dashboards/interview-share-canvas.json`,
+which appears as **Interview Share Canvas** as soon as the stack starts. It has
+two variables at the top, **Environment** and **Deployed version**, and every
+panel filters on both, so the same dashboard shows one environment, one released
+version, or everything at once. The version list narrows to the environments
+selected, so picking `prod` leaves only the versions that have run in
+production.
+
+Four stat tiles read the current state, and four graphs read the trend: rooms
+created per hour by source, participants connected by role, elements created per
+minute by kind, and rejected writes per hour by reason.
+
+The panels are Prometheus queries like any other. To write your own:
 
 ```promql
 # Interviews started per hour, by environment
@@ -354,7 +367,7 @@ make observability
 
 | Service | Address | Purpose |
 | --- | --- | --- |
-| Grafana | http://127.0.0.1:3000 | Dashboards and queries, anonymous admin, no login |
+| Grafana | http://127.0.0.1:3000 | The **Interview Share Canvas** dashboard and ad hoc queries, anonymous admin, no login |
 | Collector | `127.0.0.1:4318` (HTTP), `127.0.0.1:4317` (gRPC) | The only address the application needs |
 | Prometheus | http://127.0.0.1:9090 | Metrics, 15 day retention |
 | Loki | http://127.0.0.1:3100 | Logs, 7 day retention |
