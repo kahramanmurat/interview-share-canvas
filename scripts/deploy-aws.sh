@@ -92,8 +92,19 @@ COMMAND_ID="$(aws ssm send-command \
   --parameters "{\"commands\":[\"${REMOTE_COMMAND}\"]}" \
   --query 'Command.CommandId' \
   --output text)"
-aws ssm wait command-executed --region "${AWS_REGION}" --command-id "${COMMAND_ID}" --instance-id "${INSTANCE_ID}" || true
-COMMAND_STATUS="$(aws ssm get-command-invocation --region "${AWS_REGION}" --command-id "${COMMAND_ID}" --instance-id "${INSTANCE_ID}" --query Status --output text)"
+# Poll rather than using `ssm wait command-executed`. That waiter gives up long
+# before cloud-init finishes on a freshly created instance, and it errors out
+# immediately when the invocation is not yet queryable, which previously made a
+# successful deployment report as a failure.
+echo "Waiting for deployment command ${COMMAND_ID}..."
+COMMAND_STATUS="Pending"
+for attempt in $(seq 1 120); do
+  COMMAND_STATUS="$(aws ssm get-command-invocation --region "${AWS_REGION}" --command-id "${COMMAND_ID}" --instance-id "${INSTANCE_ID}" --query Status --output text 2>/dev/null || echo Pending)"
+  case "${COMMAND_STATUS}" in
+    Success|Failed|Cancelled|TimedOut) break ;;
+  esac
+  sleep 5
+done
 if [[ "${COMMAND_STATUS}" != "Success" ]]; then
   aws ssm get-command-invocation --region "${AWS_REGION}" --command-id "${COMMAND_ID}" --instance-id "${INSTANCE_ID}" --output json >&2
   exit 1
