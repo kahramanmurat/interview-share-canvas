@@ -3,6 +3,19 @@
 Collaborative system-design interview canvas with a FastAPI backend, a static
 frontend, and SQLite or PostgreSQL persistence.
 
+## Repository layout
+
+| Path | Contents |
+| --- | --- |
+| `backend/` | FastAPI application and its pytest suite |
+| `frontend/` | Static frontend, its `node build.mjs` build, and Node tests |
+| `integration/` | API tests that run against a live Compose stack |
+| `e2e/` | Playwright two-browser collaboration test |
+| `infrastructure/` | CloudFormation for the application stack and the GitHub OIDC roles |
+| `scripts/` | `deploy-aws.sh` and the `remote-deploy.sh` it runs on the host over SSM |
+| `openapi.yaml` | Committed API contract, asserted against the live routes by the backend tests |
+| `.github/workflows/` | The CI/CD pipeline |
+
 ## Run with Docker
 
 Run these commands from the repository root.
@@ -157,6 +170,23 @@ ALLOWED_HTTP_CIDR=0.0.0.0/0 \
 ./scripts/deploy-aws.sh
 ```
 
+Every variable the script reads:
+
+| Variable | Default |
+| --- | --- |
+| `AWS_REGION` | The AWS CLI's configured region, otherwise `us-east-1` |
+| `STACK_NAME` | `interview-share-canvas` |
+| `INSTANCE_TYPE` | `t3.micro` |
+| `ALLOWED_HTTP_CIDR` | `0.0.0.0/0` |
+| `IMAGE_TAG` | Short commit SHA of `HEAD`. CI overrides this with the full SHA |
+| `CLOUDFORMATION_ROLE_ARN` | Unset. When set, CloudFormation applies the stack with that execution role instead of your own credentials. CI always sets it |
+| `VPC_ID` | The account's default VPC |
+| `SUBNET_ID` | First public subnet in that VPC, by availability zone |
+
+Because the script is the same one CI runs, a local deploy and a pipeline deploy
+produce the same result. Running it locally against the same stack is a valid
+way to recover if the pipeline is unavailable.
+
 The stack intentionally exposes only port 80; administration is available with
 AWS Systems Manager Session Manager instead of SSH. The generated endpoint uses
 HTTP. Add a domain, certificate, and HTTPS endpoint before using the application
@@ -173,47 +203,43 @@ aws cloudformation describe-stacks \
 
 ## Test
 
-Run the backend tests:
+The suites below are the same ones CI runs, in the same order.
+
+Run the backend tests. `backend/tests/test_openapi.py` checks the committed
+`openapi.yaml` against the routes FastAPI actually registers, so that file must
+stay in sync when routes change:
 
 ```bash
 uv run pytest
 ```
 
-Run the frontend build and Node tests:
+Run the frontend build and Node tests. The `test` script builds first, so it
+also catches build breakage:
 
 ```bash
 npm --prefix frontend ci
 npm --prefix frontend test
 ```
 
-## CI/CD
-
-`.github/workflows/ci-cd.yaml` runs backend and frontend tests in parallel. Once
-both pass, it builds the Docker Compose application and PostgreSQL services,
-runs API integration tests and Playwright collaboration tests against that
-stack, and tears the stack down. Pushes to `main` then deploy through GitHub
-OIDC and verify the deployed `/health` endpoint.
-
-The OIDC roles are bootstrapped once with CloudFormation:
+Run the API integration tests against a real Compose stack. They exercise the
+HTTP API and PostgreSQL together rather than a test client:
 
 ```bash
-aws cloudformation deploy \
-  --region us-east-1 \
-  --stack-name interview-share-canvas-github-oidc \
-  --template-file infrastructure/github-oidc.yaml \
-  --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides CreateOidcProvider=false
+APP_PORT=18091 docker compose -p interview-share-canvas-integration up --build --detach --wait
+APPLICATION_URL=http://127.0.0.1:18091 node --test integration/stack.test.mjs
+docker compose -p interview-share-canvas-integration down --volumes --remove-orphans
 ```
 
-`CreateOidcProvider=false` reuses an account-level GitHub provider. Use `true`
-only when `token.actions.githubusercontent.com` is not already registered in the
-AWS account. The template defaults include this repository's immutable GitHub
-owner and repository IDs so the role does not trust name reuse. Configure these
-GitHub Actions repository variables from the stack outputs:
+`APPLICATION_URL` defaults to `http://127.0.0.1:18091`. Point it at any running
+deployment, including the AWS one, to check that instance instead.
 
-- `AWS_REGION`
-- `AWS_ROLE_ARN` from `GitHubRoleArn`
-- `AWS_CLOUDFORMATION_ROLE_ARN` from `CloudFormationRoleArn`
+Convenience targets are in the `Makefile`:
+
+| Command | Runs |
+| --- | --- |
+| `make test` | Backend tests |
+| `make check` | Lockfile verification and backend tests |
+| `make e2e` | Playwright collaboration test, including browser install |
 
 ### End-to-end collaboration test
 
@@ -241,3 +267,159 @@ The test uses the dedicated Compose project `interview-share-canvas-e2e`. Its
 containers, network, and PostgreSQL volume are removed automatically after the
 test, including when the test fails. Your regular stack and database are not
 modified.
+
+Two environment variables change that behavior:
+
+| Variable | Effect |
+| --- | --- |
+| `E2E_REUSE_COMPOSE=1` | Skip starting and tearing down Compose. The harness waits for an already-running stack on port `18091` instead. CI uses this so the integration and browser suites share one stack. |
+| `E2E_COMPOSE_PROJECT` | Use a different Compose project name. Defaults to `interview-share-canvas-e2e`. |
+
+With `E2E_REUSE_COMPOSE=1` the harness will not clean up, because it did not
+start the stack. Remove it yourself:
+
+```bash
+docker compose -p <project> down --volumes --remove-orphans
+```
+
+The application port is fixed at `18091` in `e2e/global-setup.js` and
+`e2e/playwright.config.js`; change both together if you need a different one.
+
+## CI/CD
+
+`.github/workflows/ci-cd.yaml` runs on pull requests, pushes to `main`, and
+manual dispatch. Each stage gates the next:
+
+```
+Backend tests  ─┐
+                ├─> Compose integration and E2E tests ─> Deploy to AWS
+Frontend tests ─┘                                        (main only)
+```
+
+1. **Backend tests** and **Frontend tests** run in parallel on separate runners.
+2. **Compose integration and E2E tests** builds the Compose application and
+   PostgreSQL services once on port `18091`, then runs both the API integration
+   tests and the Playwright collaboration test against that single stack.
+   Playwright reuses the already-running stack through `E2E_REUSE_COMPOSE=1`
+   instead of starting a second one. Compose logs are always printed, browser
+   traces and videos are uploaded as the `playwright-diagnostics` artifact on
+   failure, and the stack is removed with its volume even when a test fails.
+3. **Deploy to AWS** is skipped on pull requests. It assumes the deploy role
+   through GitHub OIDC with no long-lived AWS keys, then runs
+   `scripts/deploy-aws.sh`.
+
+The deploy tags the image with the full commit SHA, pushes it to ECR, applies
+`infrastructure/cloudformation.yaml` through the CloudFormation execution role,
+and swaps the running container over Systems Manager. For an image-only change
+the EC2 instance is updated in place rather than replaced, so the deploy is
+quick and the Elastic IP and EBS data volume are untouched. Template changes
+that CloudFormation cannot apply in place, such as a new `InstanceType` or a
+newer Amazon Linux AMI, do replace the instance; the data volume and Elastic IP
+are separate resources and survive that as well.
+
+The deployment is then verified twice: `scripts/deploy-aws.sh` polls
+`/health` before it exits, and a separate `Validate deployment health` step
+re-queries the stack's `ApplicationUrl` output and fails the job unless
+`/health` returns `{"status":"ok"}`. A deploy that publishes an image but leaves
+the application unhealthy fails the pipeline.
+
+The ECR repository sets `ImageTagMutability: IMMUTABLE`, so a commit SHA tag
+cannot be repointed at different image content once published. Ship a new commit
+rather than rebuilding an existing tag.
+
+### Bootstrapping the AWS roles
+
+The pipeline uses two roles so that GitHub's federated identity never holds
+general-purpose AWS administration rights:
+
+- `interview-share-canvas-github-deploy` is the only role GitHub can assume. It
+  can push to this one ECR repository, drive this one CloudFormation stack, and
+  run `AWS-RunShellScript` on instances tagged into that stack. It cannot create
+  IAM or EC2 resources directly.
+- `interview-share-canvas-cloudformation` is assumed by CloudFormation itself and
+  holds the permissions that actually create infrastructure. The deploy role may
+  only pass it to CloudFormation, never assume it.
+
+The roles are bootstrapped once, with credentials that can create IAM roles:
+
+```bash
+aws cloudformation deploy \
+  --region us-east-1 \
+  --stack-name interview-share-canvas-github-oidc \
+  --template-file infrastructure/github-oidc.yaml \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides CreateOidcProvider=false
+```
+
+`CreateOidcProvider=false` reuses an account-level GitHub provider. Use `true`
+only when `token.actions.githubusercontent.com` is not already registered in the
+AWS account. Creating a second provider for the same URL fails.
+
+Then read the role ARNs out of the stack and set them as GitHub Actions
+repository variables:
+
+```bash
+aws cloudformation describe-stacks \
+  --region us-east-1 \
+  --stack-name interview-share-canvas-github-oidc \
+  --query "Stacks[0].Outputs" --output table
+```
+
+| Repository variable | Source |
+| --- | --- |
+| `AWS_REGION` | The region you deployed into, for example `us-east-1` |
+| `AWS_ROLE_ARN` | `GitHubRoleArn` output |
+| `AWS_CLOUDFORMATION_ROLE_ARN` | `CloudFormationRoleArn` output |
+
+These are repository *variables*, not secrets. Set them under Settings, Secrets
+and variables, Actions, Variables, or with
+`gh variable set AWS_ROLE_ARN --body <arn>`.
+
+### Trust boundary and forks
+
+The deploy role trusts one exact OIDC subject:
+
+```
+repo:<owner>@<owner-id>/<repo>@<repo-id>:ref:refs/heads/main
+```
+
+Binding to GitHub's numeric owner and repository IDs, rather than to names,
+means the role keeps trusting this repository even if it is renamed, and stops
+trusting the names if someone else later claims them. Two consequences:
+
+- Only pushes to `main` can assume the role. A `workflow_dispatch` run on any
+  other branch reaches the deploy job and then fails at the credential step,
+  by design.
+- **The template defaults are this repository's IDs.** A fork must override
+  them, or GitHub Actions will fail to assume the role. Look up your own IDs and
+  pass all of them:
+
+```bash
+gh api users/<owner> --jq .id
+gh api repos/<owner>/<repo> --jq .id
+
+aws cloudformation deploy \
+  --region us-east-1 \
+  --stack-name interview-share-canvas-github-oidc \
+  --template-file infrastructure/github-oidc.yaml \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides \
+    CreateOidcProvider=false \
+    GitHubOrganization=<owner> \
+    GitHubOrganizationId=<owner-id> \
+    GitHubRepository=<repo> \
+    GitHubRepositoryId=<repo-id> \
+    GitHubBranch=main \
+    ApplicationStackName=interview-share-canvas
+```
+
+Use `gh api orgs/<org> --jq .id` instead of `users/<owner>` when the repository
+belongs to an organization.
+
+To confirm the trust before running the pipeline:
+
+```bash
+aws iam get-role --role-name interview-share-canvas-github-deploy \
+  --query 'Role.AssumeRolePolicyDocument.Statement[0].Condition.StringEquals' \
+  --output json
+```
