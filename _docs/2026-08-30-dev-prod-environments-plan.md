@@ -149,6 +149,15 @@ Creates the two GitHub environments and discovers the **actual** OIDC subject cl
 - Consumes: nothing.
 - Produces: two literal strings recorded in the plan checklist below, referred to later as `<DEV_SUBJECT>` and `<PROD_SUBJECT>`. Task 3 consumes them as the `OidcSubject` template parameter.
 
+**Correction applied 2026-08-30.** The original instruction set
+`deployment_branch_policy[protected_branches]=true`. That was verified to be
+vacuous here: `main` is not a protected branch and the repository has zero
+rulesets, yet a production deployment from `main` was still allowed. Because the
+environment subject carries no branch component, the reviewer rule would have
+been the only control. The environment now uses an explicit custom branch
+policy allowing only `main`, which does not depend on branch protection
+existing. Use the corrected commands below.
+
 - [ ] **Step 1: Create the two GitHub environments**
 
 ```bash
@@ -156,9 +165,21 @@ gh api -X PUT repos/kahramanmurat/interview-share-canvas/environments/developmen
 gh api -X PUT repos/kahramanmurat/interview-share-canvas/environments/production \
   -F "reviewers[][type]=User" \
   -F "reviewers[][id]=$(gh api user --jq .id)" \
-  -F "deployment_branch_policy[protected_branches]=true" \
-  -F "deployment_branch_policy[custom_branch_policies]=false"
+  -F "deployment_branch_policy[protected_branches]=false" \
+  -F "deployment_branch_policy[custom_branch_policies]=true"
+
+gh api -X POST repos/kahramanmurat/interview-share-canvas/environments/production/deployment-branch-policies \
+  -f name=main -f type=branch
 ```
+
+Verify the allow-list contains exactly `main`:
+
+```bash
+gh api repos/kahramanmurat/interview-share-canvas/environments/production/deployment-branch-policies \
+  --jq '{count: .total_count, branches: [.branch_policies[].name]}'
+```
+
+Expected: `{"count": 1, "branches": ["main"]}`.
 
 Expected: two JSON objects. Verify the production one shows a `required_reviewers` protection rule:
 
@@ -271,9 +292,13 @@ gh run view "$run_id" --log | grep -E "environment=|subject=" | sed 's/^.*\t//'
 Write the two observed values here before continuing. Do not proceed with a blank:
 
 ```
-DEV_SUBJECT  = ____________________________________________
-PROD_SUBJECT = ____________________________________________
+DEV_SUBJECT  = repo:kahramanmurat@1132768/interview-share-canvas@1350826572:environment:development
+PROD_SUBJECT = repo:kahramanmurat@1132768/interview-share-canvas@1350826572:environment:production
 ```
+
+OBSERVED 2026-08-30 from live tokens with audience `sts.amazonaws.com`. The
+immutable-ID prefix does compose with `:environment:<name>`, which GitHub's
+documentation never shows. These are the literal values Task 3 must use.
 
 Expected shape, to sanity-check rather than to assume: something ending in `:environment:development` and `:environment:production`. If the prefix is **not** the immutable `repo:kahramanmurat@1132768/interview-share-canvas@1350826572` form, that is important information, not a problem. Use exactly what was printed.
 
