@@ -11,7 +11,7 @@ frontend, and SQLite or PostgreSQL persistence.
 | `frontend/` | Static frontend, its `node build.mjs` build, and Node tests |
 | `integration/` | API tests that run against a live Compose stack |
 | `e2e/` | Playwright two-browser collaboration test |
-| `infrastructure/` | CloudFormation for the application stack and the GitHub OIDC roles |
+| `infrastructure/` | CloudFormation: `registry.yaml` owns the shared ECR registry, `cloudformation.yaml` is one application environment, `github-oidc.yaml` is one environment's GitHub OIDC roles |
 | `scripts/` | `deploy-aws.sh` and the `remote-deploy.sh` it runs on the host over SSM |
 | `openapi.yaml` | Committed API contract, asserted against the live routes by the backend tests |
 | `.github/workflows/` | The CI/CD pipeline |
@@ -25,6 +25,9 @@ Build the image:
 ```bash
 docker build -t interview-share-canvas .
 ```
+
+This single-container mode is for local use only. The AWS environments run
+Docker Compose with PostgreSQL, not SQLite.
 
 Start the application and mount the local `data` directory for SQLite
 persistence:
@@ -139,43 +142,114 @@ Then open <http://localhost:8091>.
 
 ## Deploy to AWS with CloudFormation
 
-The AWS deployment provisions an ECR repository, one Amazon Linux EC2 instance,
-an encrypted EBS data volume, an Elastic IP, and IAM access for ECR and Systems
-Manager. The EC2 instance runs the existing Docker image and persists the SQLite
-database on the separate EBS volume.
+### Environments
+
+Two independent environments run on AWS. Each is its own CloudFormation stack
+with its own EC2 host, encrypted EBS data volume, Elastic IP, and IAM roles.
+
+| Environment | Stack | Reached at |
+| --- | --- | --- |
+| Development | `interview-share-canvas-dev` | <http://54.85.40.252> |
+| Production | `interview-share-canvas-prod` | <http://34.205.14.31> |
+
+Both share one image registry. The stack `interview-share-canvas-registry` owns
+the ECR repository `interview-share-canvas-app`, which has immutable tags,
+scan-on-push, and a lifecycle policy that keeps the 20 newest images.
+
+Each environment also has an OIDC stack, `interview-share-canvas-dev-oidc` and
+`interview-share-canvas-prod-oidc`, holding one deploy role and one
+CloudFormation execution role.
+
+The original single-environment stack `interview-share-canvas` still exists and
+still answers on <http://98.87.32.42>. It is legacy and pending removal. It is
+not one of the environments above; do not deploy to it.
+
+### What actually runs on a host
+
+Each host runs this repository's own `docker-compose.yaml`: the application
+container plus `postgres:17-bookworm`. It is the same file, and therefore the
+same stack, that the `compose-tests` CI job validates, so the stack CI tests is
+the stack that ships.
+
+- The PostgreSQL data directory is `/data/postgres` on the encrypted EBS
+  volume. The volume is formatted and mounted by the instance `UserData`;
+  nothing else formats it.
+- The host overrides are `APP_IMAGE` (the ECR image and tag), `APP_PORT=80`,
+  `POSTGRES_DATA=/data/postgres`, `RESTART_POLICY=unless-stopped`, and
+  `PUBLIC_BASE_URL`. Unset, every one of them falls back to the local
+  development default, which is why one Compose file serves local development,
+  CI, and both hosts.
+- `UserData` prepares the host and stops there: Docker, the pinned Compose
+  plugin, and the mounted volume. `scripts/remote-deploy.sh`, run over Systems
+  Manager, is the only thing that starts the application. Because `ImageTag`
+  does not appear in `UserData`, deploying a new image never replaces the
+  instance.
+- Amazon Linux 2023 does not package the Compose plugin, so `UserData`
+  downloads Docker Compose v5.5.0 and verifies it against the release's
+  published SHA-256 checksum before making it executable.
+
+The stack intentionally exposes only port 80; administration is available with
+AWS Systems Manager Session Manager instead of SSH.
+
+### Inspect a running host
+
+Open a Session Manager shell on the instance, then:
+
+```bash
+docker ps --format '{{.Names}} {{.Image}}'
+docker exec interview-share-canvas-app-1 python -c "from backend.main import store; print(store.engine.dialect.name)"
+```
+
+The first command lists two containers, `interview-share-canvas-app-1` running
+the ECR image and `interview-share-canvas-postgres-1` running
+`postgres:17-bookworm`. The second prints `postgresql`. To confirm the data
+directory on the EBS volume, `cat /data/postgres/PG_VERSION` prints `17`.
+
+### Deploying by hand
+
+`scripts/deploy-aws.sh` is the same script CI runs, so a local deploy and a
+pipeline deploy produce the same result. Running it locally against the same
+stack is a valid way to recover if the pipeline is unavailable.
 
 Prerequisites:
 
 - AWS CLI credentials with CloudFormation, EC2, EBS, ECR, IAM, and SSM access
-- Docker running locally
+- Docker running locally, when publishing an image
 - A default VPC with at least one public subnet, or explicit `VPC_ID` and
   `SUBNET_ID` environment variables
 
-Deploy to the AWS CLI's configured region:
+Build, publish, and deploy to dev:
 
 ```bash
+STACK_NAME=interview-share-canvas-dev \
+ENVIRONMENT_NAME=dev \
 ./scripts/deploy-aws.sh
 ```
 
-The script builds a Linux AMD64 image, pushes it to ECR, deploys
-`infrastructure/cloudformation.yaml`, uses Systems Manager to apply the selected
-image idempotently, waits for `/health`, and prints the public URL. Optional
-settings include:
+Promote an image that is already in the registry to production, without
+building:
 
 ```bash
-AWS_REGION=us-east-1 \
-STACK_NAME=interview-share-canvas \
-INSTANCE_TYPE=t3.micro \
-ALLOWED_HTTP_CIDR=0.0.0.0/0 \
+STACK_NAME=interview-share-canvas-prod \
+ENVIRONMENT_NAME=prod \
+PUBLISH_IMAGE=false \
+IMAGE_TAG=<commit-sha> \
 ./scripts/deploy-aws.sh
 ```
+
+The script deploys `infrastructure/cloudformation.yaml`, then uses Systems
+Manager to run `scripts/remote-deploy.sh` on the host, which starts the Compose
+stack idempotently. It waits for `/health` and prints the public URL.
 
 Every variable the script reads:
 
 | Variable | Default |
 | --- | --- |
+| `STACK_NAME` | Required. The environment's stack, for example `interview-share-canvas-dev` |
+| `ENVIRONMENT_NAME` | Required. `dev` or `prod`. Names the environment's AWS resources |
+| `REPOSITORY_NAME` | `interview-share-canvas-app`, the shared ECR repository |
+| `PUBLISH_IMAGE` | `true`, which builds a Linux AMD64 image and pushes it. `false` promotes an existing tag and fails first if that tag is not in the repository |
 | `AWS_REGION` | The AWS CLI's configured region, otherwise `us-east-1` |
-| `STACK_NAME` | `interview-share-canvas` |
 | `INSTANCE_TYPE` | `t3.micro` |
 | `ALLOWED_HTTP_CIDR` | `0.0.0.0/0` |
 | `IMAGE_TAG` | Short commit SHA of `HEAD`. CI overrides this with the full SHA |
@@ -183,20 +257,12 @@ Every variable the script reads:
 | `VPC_ID` | The account's default VPC |
 | `SUBNET_ID` | First public subnet in that VPC, by availability zone |
 
-Because the script is the same one CI runs, a local deploy and a pipeline deploy
-produce the same result. Running it locally against the same stack is a valid
-way to recover if the pipeline is unavailable.
-
-The stack intentionally exposes only port 80; administration is available with
-AWS Systems Manager Session Manager instead of SSH. The generated endpoint uses
-HTTP. Add a domain, certificate, and HTTPS endpoint before using the application
-for sensitive production interviews.
-
-View the deployed URL later with:
+View a deployed URL later with:
 
 ```bash
 aws cloudformation describe-stacks \
-  --stack-name interview-share-canvas \
+  --region us-east-1 \
+  --stack-name interview-share-canvas-dev \
   --query "Stacks[0].Outputs[?OutputKey=='ApplicationUrl'].OutputValue" \
   --output text
 ```
@@ -291,9 +357,9 @@ The application port is fixed at `18091` in `e2e/global-setup.js` and
 manual dispatch. Each stage gates the next:
 
 ```
-Backend tests  ─┐
-                ├─> Compose integration and E2E tests ─> Deploy to AWS
-Frontend tests ─┘                                        (main only)
+Backend tests  --+
+                 +--> Compose integration --> Deploy to dev --> Deploy to production
+Frontend tests --+       and E2E tests         (automatic)       (waits for approval)
 ```
 
 1. **Backend tests** and **Frontend tests** run in parallel on separate runners.
@@ -304,122 +370,213 @@ Frontend tests ─┘                                        (main only)
    instead of starting a second one. Compose logs are always printed, browser
    traces and videos are uploaded as the `playwright-diagnostics` artifact on
    failure, and the stack is removed with its volume even when a test fails.
-3. **Deploy to AWS** is skipped on pull requests. It assumes the deploy role
-   through GitHub OIDC with no long-lived AWS keys, then runs
-   `scripts/deploy-aws.sh`.
+3. **Deploy to dev** is skipped on pull requests and needs no approval. It runs
+   in the GitHub `development` environment, assumes that environment's deploy
+   role through OIDC with no long-lived AWS keys, and runs
+   `scripts/deploy-aws.sh` with `PUBLISH_IMAGE=true`. This is the only job that
+   builds an image: it tags it with the full commit SHA and pushes it to the
+   shared ECR repository, then deploys that tag to
+   `interview-share-canvas-dev`.
+4. **Deploy to production** runs in the GitHub `production` environment and
+   waits for a required human reviewer before it starts. It deploys the exact
+   same commit SHA tag to `interview-share-canvas-prod` with
+   `PUBLISH_IMAGE=false`, so it builds nothing and verifies first that the tag
+   is already in the repository. Production therefore runs the bytes dev ran.
 
-The deploy tags the image with the full commit SHA, pushes it to ECR, applies
-`infrastructure/cloudformation.yaml` through the CloudFormation execution role,
-and swaps the running container over Systems Manager. For an image-only change
-the EC2 instance is updated in place rather than replaced, so the deploy is
-quick and the Elastic IP and EBS data volume are untouched. Template changes
-that CloudFormation cannot apply in place, such as a new `InstanceType` or a
-newer Amazon Linux AMI, do replace the instance; the data volume and Elastic IP
-are separate resources and survive that as well.
+The production deploy role holds no ECR write permission at all. It cannot even
+call `ecr:GetAuthorizationToken`, so a promotion is structurally incapable of
+publishing an image even if the pipeline asked it to. Neither environment's
+role can touch the other environment's CloudFormation stack or run Systems
+Manager commands on its instances.
 
-The deployment is then verified twice: `scripts/deploy-aws.sh` polls
-`/health` before it exits, and a separate `Validate deployment health` step
-re-queries the stack's `ApplicationUrl` output and fails the job unless
-`/health` returns `{"status":"ok"}`. A deploy that publishes an image but leaves
-the application unhealthy fails the pipeline.
+The approval gate also gates AWS access. The OIDC token is minted only once the
+job actually starts, so a run waiting for a reviewer holds no AWS credentials.
+
+Each deploy applies `infrastructure/cloudformation.yaml` through that
+environment's CloudFormation execution role, then swaps the running Compose
+stack over Systems Manager. For an image-only change the EC2 instance is
+updated in place rather than replaced, so the deploy is quick and the Elastic
+IP and EBS data volume are untouched. Template changes that CloudFormation
+cannot apply in place, such as a new `InstanceType` or a newer Amazon Linux AMI,
+do replace the instance; the data volume and Elastic IP are separate resources
+and survive that as well.
+
+Each deployment is then verified twice: `scripts/deploy-aws.sh` polls `/health`
+before it exits, and a separate `Validate deployment health` step re-queries
+the stack's `ApplicationUrl` output and fails the job unless `/health` returns
+`{"status":"ok"}`. A deploy that leaves the application unhealthy fails the
+pipeline, and a failed dev deploy never reaches the production gate.
 
 The ECR repository sets `ImageTagMutability: IMMUTABLE`, so a commit SHA tag
 cannot be repointed at different image content once published. Ship a new commit
 rather than rebuilding an existing tag.
 
-### Bootstrapping the AWS roles
+### Bootstrapping a fresh AWS account
 
-The pipeline uses two roles so that GitHub's federated identity never holds
-general-purpose AWS administration rights:
+Each environment gets two roles, so that GitHub's federated identity never
+holds general-purpose AWS administration rights:
 
-- `interview-share-canvas-github-deploy` is the only role GitHub can assume. It
-  can push to this one ECR repository, drive this one CloudFormation stack, and
-  run `AWS-RunShellScript` on instances tagged into that stack. It cannot create
-  IAM or EC2 resources directly.
-- `interview-share-canvas-cloudformation` is assumed by CloudFormation itself and
-  holds the permissions that actually create infrastructure. The deploy role may
-  only pass it to CloudFormation, never assume it.
+- `<stack>-github-deploy` is the only role GitHub can assume. It can drive that
+  one CloudFormation stack, read images from the shared ECR repository, and run
+  `AWS-RunShellScript` on instances tagged into that stack. It cannot create IAM
+  or EC2 resources directly, and it cannot reach the other environment.
+- `<stack>-cloudformation` is assumed by CloudFormation itself and holds the
+  permissions that actually create infrastructure. The deploy role may only pass
+  it to CloudFormation, never assume it.
 
-The roles are bootstrapped once, with credentials that can create IAM roles:
+Only the environment that builds images gets ECR write permission, through the
+`AllowImagePublish` parameter. Production is deployed with
+`AllowImagePublish=false`.
+
+Do these steps in order. Later steps depend on the outputs of earlier ones.
+
+**1. Create the shared registry.** Both environments pull from it, so it must
+exist before either environment does:
 
 ```bash
 aws cloudformation deploy \
   --region us-east-1 \
-  --stack-name interview-share-canvas-github-oidc \
-  --template-file infrastructure/github-oidc.yaml \
-  --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides CreateOidcProvider=false
+  --stack-name interview-share-canvas-registry \
+  --template-file infrastructure/registry.yaml
 ```
 
-`CreateOidcProvider=false` reuses an account-level GitHub provider. Use `true`
-only when `token.actions.githubusercontent.com` is not already registered in the
-AWS account. Creating a second provider for the same URL fails.
+**2. Create the GitHub environments.** `production` needs a required reviewer
+and a branch allow-list of exactly `main`:
 
-Then read the role ARNs out of the stack and set them as GitHub Actions
-repository variables:
+```bash
+gh api -X PUT repos/<owner>/<repo>/environments/development
+gh api -X PUT repos/<owner>/<repo>/environments/production \
+  -F "reviewers[][type]=User" \
+  -F "reviewers[][id]=$(gh api user --jq .id)" \
+  -F "deployment_branch_policy[protected_branches]=false" \
+  -F "deployment_branch_policy[custom_branch_policies]=true"
+
+gh api -X POST repos/<owner>/<repo>/environments/production/deployment-branch-policies \
+  -f name=main -f type=branch
+```
+
+A custom branch policy is used rather than `protected_branches=true` because
+the latter is vacuous when no branch protection exists.
+
+**3. Discover the OIDC subject claims.** Run a throwaway `workflow_dispatch`
+workflow with `id-token: write` in each environment that requests a token,
+decodes it, and prints only the `sub` claim. The observed values have the form:
+
+```
+repo:<owner>@<owner-id>/<repo>@<repo-id>:environment:<development|production>
+```
+
+**The subject is discovered, never constructed.** GitHub documents the
+immutable-ID subject and the environment subject separately and never shows
+them combined, so the combined form cannot be derived from the documentation
+with confidence. Guessing it is what broke the first pipeline run of this
+repository. For that reason `infrastructure/github-oidc.yaml` takes
+`OidcSubject` as a required parameter with no default: there is nothing to
+guess wrong.
+
+**4. Create the two OIDC stacks**, one per environment, passing the subject
+observed for that environment:
+
+```bash
+aws cloudformation deploy \
+  --region us-east-1 \
+  --stack-name interview-share-canvas-dev-oidc \
+  --template-file infrastructure/github-oidc.yaml \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides \
+    ApplicationStackName=interview-share-canvas-dev \
+    OidcSubject='<the development subject you observed>' \
+    AllowImagePublish=true
+
+aws cloudformation deploy \
+  --region us-east-1 \
+  --stack-name interview-share-canvas-prod-oidc \
+  --template-file infrastructure/github-oidc.yaml \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides \
+    ApplicationStackName=interview-share-canvas-prod \
+    OidcSubject='<the production subject you observed>' \
+    AllowImagePublish=false
+```
+
+`CreateOidcProvider` defaults to `false`, which reuses an account-level GitHub
+provider. Pass `true` on the first stack only when
+`token.actions.githubusercontent.com` is not already registered in the AWS
+account. Creating a second provider for the same URL fails.
+
+**5. Set the GitHub Actions variables.** These are *variables*, not secrets.
+
+| Repository variable | Value |
+| --- | --- |
+| `AWS_REGION` | The region you deployed into, for example `us-east-1` |
+| `AWS_REPOSITORY_NAME` | The registry stack's `RepositoryName` output, `interview-share-canvas-app` |
+
+| Per-environment variable | Value |
+| --- | --- |
+| `AWS_ROLE_ARN` | That environment's OIDC stack `GitHubRoleArn` output |
+| `AWS_CLOUDFORMATION_ROLE_ARN` | That environment's OIDC stack `CloudFormationRoleArn` output |
+| `AWS_STACK_NAME` | `interview-share-canvas-dev` or `interview-share-canvas-prod` |
+
+Read the outputs with:
 
 ```bash
 aws cloudformation describe-stacks \
   --region us-east-1 \
-  --stack-name interview-share-canvas-github-oidc \
+  --stack-name interview-share-canvas-dev-oidc \
   --query "Stacks[0].Outputs" --output table
 ```
 
-| Repository variable | Source |
-| --- | --- |
-| `AWS_REGION` | The region you deployed into, for example `us-east-1` |
-| `AWS_ROLE_ARN` | `GitHubRoleArn` output |
-| `AWS_CLOUDFORMATION_ROLE_ARN` | `CloudFormationRoleArn` output |
+Set them under Settings, Secrets and variables, Actions, or with
+`gh variable set AWS_STACK_NAME --env development --body <value>`.
 
-These are repository *variables*, not secrets. Set them under Settings, Secrets
-and variables, Actions, Variables, or with
-`gh variable set AWS_ROLE_ARN --body <arn>`.
+**6. Deploy dev, then prod**, either by pushing to `main` or by running
+`scripts/deploy-aws.sh` as shown above. Dev must go first: production promotes
+an image tag and refuses to run if that tag is not already in the registry.
 
 ### Trust boundary and forks
 
-The deploy role trusts one exact OIDC subject:
+Each deploy role trusts one exact OIDC subject, bound to GitHub's numeric owner
+and repository IDs rather than to names. The role keeps trusting this
+repository even if it is renamed, and stops trusting the names if someone else
+later claims them. Because the subject names the GitHub environment, a job
+running in `development` cannot assume the production role and a job running in
+`production` cannot assume the dev role.
 
-```
-repo:<owner>@<owner-id>/<repo>@<repo-id>:ref:refs/heads/main
-```
-
-Binding to GitHub's numeric owner and repository IDs, rather than to names,
-means the role keeps trusting this repository even if it is renamed, and stops
-trusting the names if someone else later claims them. Two consequences:
-
-- Only pushes to `main` can assume the role. A `workflow_dispatch` run on any
-  other branch reaches the deploy job and then fails at the credential step,
-  by design.
-- **The template defaults are this repository's IDs.** A fork must override
-  them, or GitHub Actions will fail to assume the role. Look up your own IDs and
-  pass all of them:
-
-```bash
-gh api users/<owner> --jq .id
-gh api repos/<owner>/<repo> --jq .id
-
-aws cloudformation deploy \
-  --region us-east-1 \
-  --stack-name interview-share-canvas-github-oidc \
-  --template-file infrastructure/github-oidc.yaml \
-  --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides \
-    CreateOidcProvider=false \
-    GitHubOrganization=<owner> \
-    GitHubOrganizationId=<owner-id> \
-    GitHubRepository=<repo> \
-    GitHubRepositoryId=<repo-id> \
-    GitHubBranch=main \
-    ApplicationStackName=interview-share-canvas
-```
-
-Use `gh api orgs/<org> --jq .id` instead of `users/<owner>` when the repository
-belongs to an organization.
+A fork must discover its own subjects with the probe described above and pass
+them as `OidcSubject`. There is no default to inherit.
 
 To confirm the trust before running the pipeline:
 
 ```bash
-aws iam get-role --role-name interview-share-canvas-github-deploy \
+aws iam get-role --role-name interview-share-canvas-prod-github-deploy \
   --query 'Role.AssumeRolePolicyDocument.Statement[0].Condition.StringEquals' \
   --output json
 ```
+
+To confirm that the production role cannot publish images, list its policy
+statements. `PublishApplicationImages` and `AuthenticateToEcr` must be absent:
+
+```bash
+aws iam get-role-policy \
+  --role-name interview-share-canvas-prod-github-deploy \
+  --policy-name DeployApplication \
+  --query 'PolicyDocument.Statement[].Sid' --output text
+```
+
+## Known gaps
+
+These are real and unaddressed. Read them before putting real interview content
+into production.
+
+1. **No TLS and no domain.** Both environments serve plain HTTP with an IP
+   address for a hostname. A domain, a certificate, and an HTTPS endpoint are
+   required before production carries real interview content.
+2. **No database migrations.** `backend/store.py` calls
+   `Base.metadata.create_all`, which creates missing tables but never alters
+   existing ones. Now that both environments hold persistent PostgreSQL data,
+   the first schema change that alters a column will silently fail to apply.
+   Alembic is needed before the schema evolves.
+3. **No production backups.** The data volume carries
+   `DeletionPolicy: Snapshot`, which protects against stack deletion. It does
+   not protect against data corruption or accidental deletion of rows. There is
+   no scheduled backup.
