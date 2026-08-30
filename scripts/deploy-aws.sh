@@ -7,7 +7,10 @@ TEMPLATE_FILE="${PROJECT_DIRECTORY}/infrastructure/cloudformation.yaml"
 
 AWS_REGION="${AWS_REGION:-$(aws configure get region)}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
-STACK_NAME="${STACK_NAME:-interview-share-canvas}"
+STACK_NAME="${STACK_NAME:?STACK_NAME is required, for example interview-share-canvas-dev}"
+ENVIRONMENT_NAME="${ENVIRONMENT_NAME:?ENVIRONMENT_NAME is required, dev or prod}"
+REPOSITORY_NAME="${REPOSITORY_NAME:-interview-share-canvas-app}"
+PUBLISH_IMAGE="${PUBLISH_IMAGE:-true}"
 INSTANCE_TYPE="${INSTANCE_TYPE:-t3.micro}"
 ALLOWED_HTTP_CIDR="${ALLOWED_HTTP_CIDR:-0.0.0.0/0}"
 IMAGE_TAG="${IMAGE_TAG:-$(git -C "${PROJECT_DIRECTORY}" rev-parse --short=12 HEAD)}"
@@ -19,6 +22,7 @@ if [[ -n "${CLOUDFORMATION_ROLE_ARN}" ]]; then
 fi
 
 AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+REPOSITORY_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPOSITORY_NAME}"
 VPC_ID="${VPC_ID:-$(aws ec2 describe-vpcs --region "${AWS_REGION}" --filters Name=is-default,Values=true --query 'Vpcs[0].VpcId' --output text)}"
 
 if [[ -z "${VPC_ID}" || "${VPC_ID}" == "None" ]]; then
@@ -29,28 +33,21 @@ fi
 SUBNET_ID="${SUBNET_ID:-$(aws ec2 describe-subnets --region "${AWS_REGION}" --filters "Name=vpc-id,Values=${VPC_ID}" Name=map-public-ip-on-launch,Values=true --query 'sort_by(Subnets,&AvailabilityZone)[0].SubnetId' --output text)}"
 AVAILABILITY_ZONE="$(aws ec2 describe-subnets --region "${AWS_REGION}" --subnet-ids "${SUBNET_ID}" --query 'Subnets[0].AvailabilityZone' --output text)"
 
-if ! aws cloudformation describe-stacks --region "${AWS_REGION}" --stack-name "${STACK_NAME}" >/dev/null 2>&1; then
-  echo "Creating the ECR repository with CloudFormation..."
-  aws cloudformation deploy \
+if [[ "${PUBLISH_IMAGE}" == "true" ]]; then
+  echo "Building and pushing ${REPOSITORY_URI}:${IMAGE_TAG}..."
+  aws ecr get-login-password --region "${AWS_REGION}" | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+  docker build --platform linux/amd64 --tag "${REPOSITORY_URI}:${IMAGE_TAG}" "${PROJECT_DIRECTORY}"
+  docker push "${REPOSITORY_URI}:${IMAGE_TAG}"
+else
+  echo "Promoting the existing image ${REPOSITORY_URI}:${IMAGE_TAG}..."
+  if ! aws ecr describe-images \
     --region "${AWS_REGION}" \
-    --stack-name "${STACK_NAME}" \
-    --template-file "${TEMPLATE_FILE}" \
-    --capabilities CAPABILITY_IAM \
-    "${CLOUDFORMATION_ROLE_ARGUMENTS[@]}" \
-    --parameter-overrides \
-      DeploymentMode=Bootstrap \
-      VpcId="${VPC_ID}" \
-      SubnetId="${SUBNET_ID}" \
-      AvailabilityZone="${AVAILABILITY_ZONE}" \
-    --no-fail-on-empty-changeset
+    --repository-name "${REPOSITORY_NAME}" \
+    --image-ids "imageTag=${IMAGE_TAG}" >/dev/null 2>&1; then
+    echo "Image tag ${IMAGE_TAG} is not present in ${REPOSITORY_NAME}. Deploy it to dev first." >&2
+    exit 1
+  fi
 fi
-
-REPOSITORY_URI="$(aws cloudformation describe-stacks --region "${AWS_REGION}" --stack-name "${STACK_NAME}" --query "Stacks[0].Outputs[?OutputKey=='RepositoryUri'].OutputValue | [0]" --output text)"
-
-echo "Building and pushing ${REPOSITORY_URI}:${IMAGE_TAG}..."
-aws ecr get-login-password --region "${AWS_REGION}" | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-docker build --platform linux/amd64 --tag "${REPOSITORY_URI}:${IMAGE_TAG}" "${PROJECT_DIRECTORY}"
-docker push "${REPOSITORY_URI}:${IMAGE_TAG}"
 
 echo "Deploying the application host with CloudFormation..."
 aws cloudformation deploy \
@@ -60,7 +57,8 @@ aws cloudformation deploy \
   --capabilities CAPABILITY_IAM \
   "${CLOUDFORMATION_ROLE_ARGUMENTS[@]}" \
   --parameter-overrides \
-    DeploymentMode=Deploy \
+    EnvironmentName="${ENVIRONMENT_NAME}" \
+    RepositoryName="${REPOSITORY_NAME}" \
     ImageTag="${IMAGE_TAG}" \
     VpcId="${VPC_ID}" \
     SubnetId="${SUBNET_ID}" \
