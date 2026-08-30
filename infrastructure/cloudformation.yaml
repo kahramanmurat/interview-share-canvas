@@ -138,6 +138,12 @@ Resources:
           Value: !Sub ${AWS::StackName}-app
         - Key: Environment
           Value: !Ref EnvironmentName
+        # Records the image this host was last deployed with. It also keeps
+        # ImageTag affecting a real resource: without this the parameter changes
+        # produce an empty changeset, the stack update is skipped, and the stored
+        # ImageTag silently goes stale while the host runs something else.
+        - Key: DeployedImageTag
+          Value: !Ref ImageTag
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
