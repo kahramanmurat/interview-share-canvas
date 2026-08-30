@@ -8,6 +8,14 @@ services:
     environment:
       - DATABASE_URL=postgresql+psycopg://interview:interview@postgres:5432/interview_share_canvas
       - PUBLIC_BASE_URL
+      # Identifies this deployment in telemetry. Unset locally, the backend
+      # reports the environment as "local" and the version as "unknown".
+      - ENVIRONMENT_NAME
+      - IMAGE_TAG
+      # Telemetry only exports when an endpoint is set.
+      - OTEL_EXPORTER_OTLP_ENDPOINT
+      - OTEL_EXPORTER_OTLP_HEADERS
+      - OTEL_SERVICE_NAME
     depends_on:
       postgres:
         condition: service_healthy

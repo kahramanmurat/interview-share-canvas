@@ -131,6 +131,7 @@ jobs:
           REPOSITORY_NAME: ${{ vars.AWS_REPOSITORY_NAME }}
           CLOUDFORMATION_ROLE_ARN: ${{ vars.AWS_CLOUDFORMATION_ROLE_ARN }}
           IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_ENDPOINT }}
         run: ./scripts/deploy-aws.sh
       - name: Validate deployment health
         env:
@@ -168,6 +169,7 @@ jobs:
           REPOSITORY_NAME: ${{ vars.AWS_REPOSITORY_NAME }}
           CLOUDFORMATION_ROLE_ARN: ${{ vars.AWS_CLOUDFORMATION_ROLE_ARN }}
           IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_ENDPOINT }}
         run: ./scripts/deploy-aws.sh
       - name: Validate deployment health
         env:

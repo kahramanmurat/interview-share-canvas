@@ -4,6 +4,11 @@ set -euo pipefail
 : "${AWS_REGION:?AWS_REGION is required}"
 : "${IMAGE_URI:?IMAGE_URI is required}"
 : "${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required}"
+: "${ENVIRONMENT_NAME:?ENVIRONMENT_NAME is required}"
+: "${IMAGE_TAG:?IMAGE_TAG is required}"
+
+# Optional. Without a collector endpoint the backend runs uninstrumented.
+OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
 
 APPLICATION_DIRECTORY="/opt/interview-share-canvas"
 COMPOSE_FILE="${APPLICATION_DIRECTORY}/docker-compose.yaml"
@@ -42,6 +47,9 @@ APP_IMAGE="${IMAGE_URI}" \
 APP_PORT=80 \
 POSTGRES_DATA=/data/postgres \
 PUBLIC_BASE_URL="${PUBLIC_BASE_URL}" \
+ENVIRONMENT_NAME="${ENVIRONMENT_NAME}" \
+IMAGE_TAG="${IMAGE_TAG}" \
+OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT}" \
 RESTART_POLICY=unless-stopped \
 docker compose --project-name "${COMPOSE_PROJECT}" up --detach --no-build --pull always --wait
 

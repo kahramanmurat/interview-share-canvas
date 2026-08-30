@@ -15,6 +15,7 @@ from .routers import collaboration, guest, sessions
 from .routers import auth as auth_router
 from .routers import canvas, review
 from .store import DatabaseStore
+from .telemetry import configure_telemetry
 
 
 FRONTEND_DIRECTORY = Path(__file__).resolve().parents[1] / "frontend"
@@ -63,6 +64,8 @@ def create_app(store: DatabaseStore | None = None) -> FastAPI:
     def guest_frontend(token: str) -> FileResponse:
         """Serve the candidate lobby for links created by the API."""
         return FileResponse(FRONTEND_DIRECTORY / "interview-platform.dc.html")
+
+    configure_telemetry(application, application.state.store.engine)
 
     application.mount(
         "/",

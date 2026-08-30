@@ -14,6 +14,10 @@ INSTANCE_TYPE="${INSTANCE_TYPE:-t3.micro}"
 ALLOWED_HTTP_CIDR="${ALLOWED_HTTP_CIDR:-0.0.0.0/0}"
 IMAGE_TAG="${IMAGE_TAG:?IMAGE_TAG is required, publish it first with scripts/publish-image.sh}"
 CLOUDFORMATION_ROLE_ARN="${CLOUDFORMATION_ROLE_ARN:-}"
+# Optional telemetry collector. Credentials do not belong here: a Systems
+# Manager command and its parameters are readable in the console and CloudTrail,
+# so an authenticating collector should hold its own credentials on the host.
+OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
 
 CLOUDFORMATION_ROLE_ARGUMENTS=()
 if [[ -n "${CLOUDFORMATION_ROLE_ARN}" ]]; then
@@ -76,7 +80,7 @@ if [[ "${PING_STATUS:-}" != "Online" ]]; then
 fi
 
 DEPLOY_PAYLOAD_BASE64="$(tar --no-xattrs -c -C "${PROJECT_DIRECTORY}" -f - scripts/remote-deploy.sh docker-compose.yaml | base64 | tr -d '\n')"
-REMOTE_COMMAND="set -euo pipefail; mkdir -p /opt/interview-share-canvas; echo ${DEPLOY_PAYLOAD_BASE64} | base64 --decode | tar -x -C /opt/interview-share-canvas -f -; AWS_REGION=${AWS_REGION} IMAGE_URI=${REPOSITORY_URI}:${IMAGE_TAG} PUBLIC_BASE_URL=${APPLICATION_URL} bash /opt/interview-share-canvas/scripts/remote-deploy.sh"
+REMOTE_COMMAND="set -euo pipefail; mkdir -p /opt/interview-share-canvas; echo ${DEPLOY_PAYLOAD_BASE64} | base64 --decode | tar -x -C /opt/interview-share-canvas -f -; AWS_REGION=${AWS_REGION} IMAGE_URI=${REPOSITORY_URI}:${IMAGE_TAG} IMAGE_TAG=${IMAGE_TAG} ENVIRONMENT_NAME=${ENVIRONMENT_NAME} PUBLIC_BASE_URL=${APPLICATION_URL} OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT} bash /opt/interview-share-canvas/scripts/remote-deploy.sh"
 COMMAND_ID="$(aws ssm send-command \
   --region "${AWS_REGION}" \
   --instance-ids "${INSTANCE_ID}" \

@@ -175,8 +175,10 @@ the stack that ships.
   volume. The volume is formatted and mounted by the instance `UserData`;
   nothing else formats it.
 - The host overrides are `APP_IMAGE` (the ECR image and tag), `APP_PORT=80`,
-  `POSTGRES_DATA=/data/postgres`, `RESTART_POLICY=unless-stopped`, and
-  `PUBLIC_BASE_URL`. Unset, every one of them falls back to the local
+  `POSTGRES_DATA=/data/postgres`, `RESTART_POLICY=unless-stopped`,
+  `PUBLIC_BASE_URL`, and the telemetry variables `ENVIRONMENT_NAME`,
+  `IMAGE_TAG`, and `OTEL_EXPORTER_OTLP_ENDPOINT` described under
+  [Observability](#observability). Unset, every one of them falls back to the local
   development default, which is why one Compose file serves local development,
   CI, and both hosts.
 - `UserData` prepares the host and stops there: Docker, the pinned Compose
@@ -253,6 +255,7 @@ Every variable the script reads:
 | `INSTANCE_TYPE` | `t3.micro` |
 | `ALLOWED_HTTP_CIDR` | `0.0.0.0/0` |
 | `IMAGE_TAG` | Short commit SHA of `HEAD`. CI overrides this with the full SHA |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Unset, which deploys the backend uninstrumented. When set, the host exports telemetry to that collector |
 | `CLOUDFORMATION_ROLE_ARN` | Unset. When set, CloudFormation applies the stack with that execution role instead of your own credentials. CI always sets it |
 | `VPC_ID` | The account's default VPC |
 | `SUBNET_ID` | First public subnet in that VPC, by availability zone |
@@ -266,6 +269,49 @@ aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs[?OutputKey=='ApplicationUrl'].OutputValue" \
   --output text
 ```
+
+## Observability
+
+The backend is instrumented with OpenTelemetry. Incoming requests, the
+SQLAlchemy queries they run, and the application's logs are exported over OTLP
+as traces, metrics, and logs.
+
+Every span, metric, and log record carries the same three resource attributes,
+which is what makes one telemetry stream from two identical environments
+readable:
+
+| Attribute | Value | Source |
+| --- | --- | --- |
+| `service.name` | `interview-share-canvas` | `OTEL_SERVICE_NAME`, otherwise the default |
+| `deployment.environment.name` | `dev` or `prod` | `ENVIRONMENT_NAME`, the same value the deploy script names AWS resources with. `local` when nothing deployed the process |
+| `service.version` | The deployed ECR image tag, for example `20260830-014229-4175fa9` | `IMAGE_TAG`, the same tag recorded on the instance as its `DeployedImageTag` tag. `unknown` when nothing deployed the process |
+
+Telemetry is off unless `OTEL_EXPORTER_OTLP_ENDPOINT` names a collector, so
+local runs, CI, and the test suite export nothing and pay for nothing. The
+exporter speaks OTLP over HTTP and protobuf, appending `/v1/traces`,
+`/v1/metrics`, and `/v1/logs` to that endpoint. Set `OTEL_SDK_DISABLED=true` to
+turn a configured deployment off without changing its endpoint.
+
+The `/health` endpoint is not traced. It is polled by the Compose healthcheck
+and by the deploy script, and those spans would outnumber real traffic.
+
+To watch the telemetry locally, run any OTLP collector and point the backend at
+it:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
+ENVIRONMENT_NAME=local \
+IMAGE_TAG=$(git rev-parse --short=7 HEAD) \
+uv run uvicorn backend.main:app --port 8091
+```
+
+In AWS, the endpoint travels from the `OTEL_EXPORTER_OTLP_ENDPOINT` repository
+or environment variable in GitHub, through `scripts/deploy-aws.sh`, into the
+Compose stack on the host. Collector credentials deliberately do not travel
+that path: a Systems Manager command and its parameters are readable in the
+console and in CloudTrail. A collector that authenticates upstream should hold
+its own credentials on the host, with the backend exporting to it unauthenticated
+over localhost.
 
 ## Test
 

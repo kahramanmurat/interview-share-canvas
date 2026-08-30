@@ -5,6 +5,10 @@ description = "FastAPI backend for the Interview Share Canvas prototype"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115,<1.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.30,<2.0",
+    "opentelemetry-instrumentation-fastapi>=0.51b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.51b0",
+    "opentelemetry-sdk>=1.30,<2.0",
     "psycopg[binary]>=3.2,<4.0",
     "pydantic[email]>=2.7,<3.0",
     "sqlalchemy>=2.0,<3.0",
