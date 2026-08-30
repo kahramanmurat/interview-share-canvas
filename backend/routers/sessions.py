@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, status
 from ..auth import Principal
 from ..dependencies import current_user, get_store
 from ..errors import APIError
+from ..metrics import record_room_created
 from ..models import (
     CreateSessionRequest,
     OkResponse,
@@ -66,6 +67,7 @@ def create_session(
             template_id=payload.template_id,
         )
         store.add_audit(session.id, "session.created")
+        record_room_created("new")
         return store.public_session(session)
 
 
@@ -163,6 +165,7 @@ def duplicate_session(
         )
         store.canvases[duplicate.id].doc = copy.deepcopy(store.canvases[source.id].doc)
         store.add_audit(duplicate.id, "session.created")
+        record_room_created("duplicate")
         return store.public_session(duplicate)
 
 

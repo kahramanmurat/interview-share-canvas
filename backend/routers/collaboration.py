@@ -9,6 +9,12 @@ from pydantic import ValidationError
 
 from ..auth import Principal, authenticate_token
 from ..errors import APIError
+from ..metrics import (
+    record_element_creation_failure,
+    record_elements_created,
+    record_participant_connected,
+    record_participant_disconnected,
+)
 from ..models import CanvasDocument
 from ..store import DatabaseStore, ParticipantRecord, SessionRecord, utc_now
 from .helpers import canvas_document_dict, require_session_member, validate_canvas_limits
@@ -130,7 +136,9 @@ def _persist_update(
         if client_operation_id in canvas.operation_ids:
             return
         now = utc_now()
+        previous_doc = canvas.doc
         canvas.doc = canvas_document_dict(document)
+        record_elements_created(previous_doc, canvas.doc)
         canvas.latest_operation_cursor += 1
         canvas.updated_at = now
         canvas.operation_ids[client_operation_id] = [
@@ -156,6 +164,7 @@ async def collaboration_room(websocket: WebSocket, session_id: str) -> None:
             if participant is None:
                 raise APIError("forbidden", "You must join this interview first.", 403)
             participant_id = participant.id
+            participant_role = participant.role
             store.rooms.setdefault(session_id, set())
             store.presence.setdefault(session_id, {})
     except APIError as error:
@@ -171,6 +180,9 @@ async def collaboration_room(websocket: WebSocket, session_id: str) -> None:
 
     joined = False
     try:
+        # Paired with the decrement in the finally below, so a connection that
+        # never reaches this point is never counted as present either.
+        record_participant_connected(participant_role)
         while True:
             message = await websocket.receive_json()
             message_type = message.get("type")
@@ -232,8 +244,10 @@ async def collaboration_room(websocket: WebSocket, session_id: str) -> None:
                         )
                     except (APIError, ValidationError) as error:
                         if isinstance(error, APIError):
+                            record_element_creation_failure(error.code)
                             await _send_error(websocket, error)
                         else:
+                            record_element_creation_failure("validation_error")
                             await _send_error(
                                 websocket,
                                 APIError("validation_error", "The document is invalid.", 400),
@@ -277,6 +291,7 @@ async def collaboration_room(websocket: WebSocket, session_id: str) -> None:
     except WebSocketDisconnect:
         pass
     finally:
+        record_participant_disconnected(participant_role)
         with store.lock:
             store.rooms.get(session_id, set()).discard(websocket)
             store.presence.get(session_id, {}).pop(participant_id, None)

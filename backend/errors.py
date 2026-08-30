@@ -9,6 +9,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from .metrics import record_element_creation_failure
+
 
 class APIError(Exception):
     """An error that is safe to expose as the contract's error response."""
@@ -40,13 +42,30 @@ def _validation_message(exc: RequestValidationError) -> str:
     return message
 
 
+def _is_canvas_write(request: Request) -> bool:
+    """Was this the request that saves a canvas document?
+
+    Counting rejected canvas writes here catches every layer that can refuse
+    one, the request body validation FastAPI does before the route runs
+    included, without a try block around each handler.
+    """
+    return request.method == "POST" and request.url.path.endswith("/canvas")
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(APIError)
-    async def handle_api_error(_: Request, exc: APIError) -> JSONResponse:
+    async def handle_api_error(request: Request, exc: APIError) -> JSONResponse:
+        if _is_canvas_write(request):
+            record_element_creation_failure(exc.code)
         return _error_response(exc.code, exc.message, exc.status_code)
 
     @app.exception_handler(RequestValidationError)
-    async def handle_validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
+    async def handle_validation_error(
+        request: Request,
+        exc: RequestValidationError,
+    ) -> JSONResponse:
+        if _is_canvas_write(request):
+            record_element_creation_failure("validation_error")
         if any(
             "token" in error.get("loc", ())
             for error in exc.errors()

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends
 from ..auth import Principal
 from ..dependencies import current_principal, get_store
 from ..errors import APIError
+from ..metrics import record_elements_created
 from ..models import CanvasDocument, CanvasResponse, SaveCanvasRequest, SaveCanvasResponse
 from ..store import DatabaseStore, utc_now
 from .helpers import (
@@ -80,7 +81,9 @@ def save_canvas(
                 return {"operation_cursor": cursor, "saved_at": saved_at}
 
         now = utc_now()
+        previous_doc = canvas.doc
         canvas.doc = canvas_document_dict(payload.doc)
+        record_elements_created(previous_doc, canvas.doc)
         canvas.latest_operation_cursor += 1
         canvas.updated_at = now
         if payload.client_operation_id:

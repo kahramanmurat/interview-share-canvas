@@ -296,6 +296,52 @@ turn a configured deployment off without changing its endpoint.
 The `/health` endpoint is not traced. It is polled by the Compose healthcheck
 and by the deploy script, and those spans would outnumber real traffic.
 
+### Application metrics
+
+Beyond the HTTP and database instrumentation, the backend records four metrics
+of its own, in `backend/metrics.py`. None of them carries the environment or the
+deployed version as an attribute: those are resource attributes on every signal
+the process exports, so every metric below is already split by environment and
+by version, and no call site has to remember to add them.
+
+| Metric | Prometheus name | Kind | Attributes |
+| --- | --- | --- | --- |
+| Interview rooms created | `interview_rooms_created_total` | Counter | `room_source`: `new` or `duplicate` |
+| Active interview participants | `interview_participants_active` | UpDownCounter | `participant_role`: `owner`, `candidate`, or `observer` |
+| Canvas elements created | `canvas_elements_created_total` | Counter | `element_kind`: `node`, `edge`, or `stroke` |
+| Failures creating canvas elements | `canvas_elements_creation_failures_total` | Counter | `failure_reason`: the error code returned, for example `editing_locked`, `document_too_large`, `validation_error` |
+
+What each one counts, and why it counts that way:
+
+- **Rooms** are counted where interviews are created through the API, so the
+  seeded demo data is not counted. Every interview is one collaboration room.
+- **Active participants** are those connected to a collaboration room right now,
+  not everyone on the roster. The counter is incremented and decremented around
+  the same `try`/`finally` that adds and removes the WebSocket, so a connection
+  that fails before the room accepts it is never counted as present.
+- **Elements created** is the rise in a document's element count. A canvas write
+  replaces the whole document, so what was created is what the new document has
+  beyond the old one, per kind. A deletion is not a negative creation, so a kind
+  that shrank contributes nothing.
+- **Creation failures** count canvas writes the server rejected, meaning the
+  elements they carried were never created. They are recorded in the exception
+  handlers rather than in the route, so every layer that can refuse a write is
+  covered, including the request validation FastAPI does before the route runs.
+  Rejected WebSocket document updates are counted the same way.
+
+Useful queries once the local stack is running:
+
+```promql
+# Interviews started per hour, by environment
+sum by (deployment_environment_name) (rate(interview_rooms_created_total[1h])) * 3600
+
+# Who is in an interview right now
+sum by (participant_role) (interview_participants_active)
+
+# Share of canvas writes that failed, by reason, for one deployed version
+sum by (failure_reason) (rate(canvas_elements_creation_failures_total{service_version="20260830-014229-4175fa9"}[5m]))
+```
+
 ### The local observability stack
 
 `observability/` is a second Compose project holding somewhere for that
