@@ -4,7 +4,6 @@ set -euo pipefail
 SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
 TEMPLATE_FILE="${PROJECT_DIRECTORY}/infrastructure/cloudformation.yaml"
-REMOTE_DEPLOY_FILE="${PROJECT_DIRECTORY}/scripts/remote-deploy.sh"
 
 AWS_REGION="${AWS_REGION:-$(aws configure get region)}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
@@ -72,7 +71,6 @@ aws cloudformation deploy \
 
 APPLICATION_URL="$(aws cloudformation describe-stacks --region "${AWS_REGION}" --stack-name "${STACK_NAME}" --query "Stacks[0].Outputs[?OutputKey=='ApplicationUrl'].OutputValue | [0]" --output text)"
 INSTANCE_ID="$(aws cloudformation describe-stacks --region "${AWS_REGION}" --stack-name "${STACK_NAME}" --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue | [0]" --output text)"
-DATA_VOLUME_ID="$(aws cloudformation describe-stacks --region "${AWS_REGION}" --stack-name "${STACK_NAME}" --query "Stacks[0].Outputs[?OutputKey=='DataVolumeId'].OutputValue | [0]" --output text)"
 
 echo "Waiting for Systems Manager on ${INSTANCE_ID}..."
 for attempt in $(seq 1 60); do
@@ -87,8 +85,8 @@ if [[ "${PING_STATUS:-}" != "Online" ]]; then
   exit 1
 fi
 
-REMOTE_SCRIPT_BASE64="$(base64 < "${REMOTE_DEPLOY_FILE}" | tr -d '\n')"
-REMOTE_COMMAND="echo ${REMOTE_SCRIPT_BASE64} | base64 --decode | AWS_REGION=${AWS_REGION} DATA_VOLUME_ID=${DATA_VOLUME_ID} IMAGE_URI=${REPOSITORY_URI}:${IMAGE_TAG} PUBLIC_BASE_URL=${APPLICATION_URL} bash"
+DEPLOY_PAYLOAD_BASE64="$(tar -c -C "${PROJECT_DIRECTORY}" -f - scripts/remote-deploy.sh docker-compose.yaml | base64 | tr -d '\n')"
+REMOTE_COMMAND="set -euo pipefail; mkdir -p /opt/interview-share-canvas; echo ${DEPLOY_PAYLOAD_BASE64} | base64 --decode | tar -x -C /opt/interview-share-canvas -f -; AWS_REGION=${AWS_REGION} IMAGE_URI=${REPOSITORY_URI}:${IMAGE_TAG} PUBLIC_BASE_URL=${APPLICATION_URL} bash /opt/interview-share-canvas/scripts/remote-deploy.sh"
 COMMAND_ID="$(aws ssm send-command \
   --region "${AWS_REGION}" \
   --instance-ids "${INSTANCE_ID}" \
