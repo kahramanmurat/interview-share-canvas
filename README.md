@@ -12,8 +12,8 @@ frontend, and SQLite or PostgreSQL persistence.
 | `integration/` | API tests that run against a live Compose stack |
 | `e2e/` | Playwright two-browser collaboration test |
 | `observability/` | A separate Compose project: OpenTelemetry Collector, Prometheus, Loki, Tempo, and Grafana, for the telemetry the backend exports |
-| `infrastructure/` | CloudFormation: `registry.yaml` owns the shared ECR registry, `cloudformation.yaml` is one application environment, `github-oidc.yaml` is one environment's GitHub OIDC roles |
-| `scripts/` | `deploy-aws.sh` and the `remote-deploy.sh` it runs on the host over SSM |
+| `infrastructure/` | CloudFormation: `registry.yaml` owns the shared ECR registry, `cloudformation.yaml` is one application environment, `observability.yaml` is the shared observability host, `github-oidc.yaml` is one environment's GitHub OIDC roles |
+| `scripts/` | `deploy-aws.sh` and the `remote-deploy.sh` it runs on the host over SSM, plus the matching pair for the observability stack |
 | `openapi.yaml` | Committed API contract, asserted against the live routes by the backend tests |
 | `.github/workflows/` | The CI/CD pipeline |
 
@@ -144,6 +144,10 @@ Then open <http://localhost:8091>.
 ## Deploy to AWS with CloudFormation
 
 ### Environments
+
+Three stacks run on AWS: two application environments, and one observability
+host they both report to, described under
+[The deployed observability stack](#the-deployed-observability-stack).
 
 Two independent environments run on AWS. Each is its own CloudFormation stack
 with its own EC2 host, encrypted EBS data volume, Elastic IP, and IAM roles.
@@ -422,6 +426,84 @@ that path: a Systems Manager command and its parameters are readable in the
 console and in CloudTrail. A collector that authenticates upstream should hold
 its own credentials on the host, with the backend exporting to it unauthenticated
 over localhost.
+
+### The deployed observability stack
+
+The same five services run on AWS as a third CloudFormation stack,
+`interview-share-canvas-observability`, beside the `dev` and `prod` application
+stacks. It has its own instance and its own EBS volume, so telemetry outlives
+both the instance and any application deploy, and it is deployed by hand rather
+than by the pipeline, because it is infrastructure the environments consume
+rather than something a code change should restart.
+
+```bash
+# Once per account: the deployed Grafana requires a login.
+aws ssm put-parameter \
+  --name /interview-share-canvas/observability/grafana-admin-password \
+  --type SecureString \
+  --value "$(openssl rand -base64 24)"
+
+./scripts/deploy-observability.sh
+```
+
+**What connects the stacks.** One SSM parameter, and nothing else:
+
+```
+observability stack                     application stack (dev, prod)
+  collector on a private address          remote-deploy.sh reads the parameter
+        |                                            |
+        +--> /interview-share-canvas/observability/otlp-endpoint <--+
+```
+
+CloudFormation writes the parameter from the instance's own private IP, so
+replacing the instance rewrites it and the next application deploy picks up the
+new address. There is no shared Compose network, no cross-stack reference, and
+no address baked into the pipeline. An application host that finds no parameter
+runs uninstrumented, which is exactly what happens before this stack exists.
+`OTEL_EXPORTER_OTLP_ENDPOINT` still overrides it if you ever need to point one
+environment somewhere else.
+
+Because the endpoint is read at deploy time, **an environment connects on its
+next deploy**. Redeploy dev and prod after creating the observability stack.
+
+**Nothing is exposed to the internet.** The collector accepts OTLP from the
+VPC's own range, so only hosts inside the VPC can write telemetry. Grafana,
+Prometheus, Loki, and Tempo bind to the host's loopback address and have no
+security group opening at all. Reach Grafana with a port forwarding session:
+
+```bash
+aws ssm start-session \
+  --target "$(aws cloudformation describe-stacks \
+    --stack-name interview-share-canvas-observability \
+    --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue|[0]" --output text)" \
+  --document-name AWS-StartPortForwardingSession \
+  --parameters '{"portNumber":["3000"],"localPortNumber":["3000"]}'
+```
+
+Then open http://127.0.0.1:3000 and sign in as `admin` with:
+
+```bash
+aws ssm get-parameter \
+  --name /interview-share-canvas/observability/grafana-admin-password \
+  --with-decryption --query Parameter.Value --output text
+```
+
+The host reads that password itself rather than being handed it, because a
+Systems Manager command and its parameters are readable in the console and in
+CloudTrail. The same reasoning applies to anything else the collector might
+need to authenticate upstream.
+
+The dashboard's **Environment** variable is what makes one stack serve both
+environments: `dev` and `prod` write to the same collector and stay separated by
+the resource attributes every signal already carries.
+
+| Setting | Deployed | Local |
+| --- | --- | --- |
+| Grafana login | Required, password from Parameter Store | Anonymous admin |
+| Query ports | Loopback only, reached over Systems Manager | Loopback only |
+| OTLP | The VPC range | Published on the host |
+| Storage | `/data` on an EBS volume, retained on instance replacement | Docker volumes |
+| Instance | `t3.small`; `t3.micro` cannot hold all five services | Your machine |
 
 ## Test
 
