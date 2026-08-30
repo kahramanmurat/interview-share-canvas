@@ -10,10 +10,9 @@ AWS_REGION="${AWS_REGION:-us-east-1}"
 STACK_NAME="${STACK_NAME:?STACK_NAME is required, for example interview-share-canvas-dev}"
 ENVIRONMENT_NAME="${ENVIRONMENT_NAME:?ENVIRONMENT_NAME is required, dev or prod}"
 REPOSITORY_NAME="${REPOSITORY_NAME:-interview-share-canvas-app}"
-PUBLISH_IMAGE="${PUBLISH_IMAGE:-true}"
 INSTANCE_TYPE="${INSTANCE_TYPE:-t3.micro}"
 ALLOWED_HTTP_CIDR="${ALLOWED_HTTP_CIDR:-0.0.0.0/0}"
-IMAGE_TAG="${IMAGE_TAG:-$(git -C "${PROJECT_DIRECTORY}" rev-parse --short=12 HEAD)}"
+IMAGE_TAG="${IMAGE_TAG:?IMAGE_TAG is required, publish it first with scripts/publish-image.sh}"
 CLOUDFORMATION_ROLE_ARN="${CLOUDFORMATION_ROLE_ARN:-}"
 
 CLOUDFORMATION_ROLE_ARGUMENTS=()
@@ -33,20 +32,13 @@ fi
 SUBNET_ID="${SUBNET_ID:-$(aws ec2 describe-subnets --region "${AWS_REGION}" --filters "Name=vpc-id,Values=${VPC_ID}" Name=map-public-ip-on-launch,Values=true --query 'sort_by(Subnets,&AvailabilityZone)[0].SubnetId' --output text)}"
 AVAILABILITY_ZONE="$(aws ec2 describe-subnets --region "${AWS_REGION}" --subnet-ids "${SUBNET_ID}" --query 'Subnets[0].AvailabilityZone' --output text)"
 
-if [[ "${PUBLISH_IMAGE}" == "true" ]]; then
-  echo "Building and pushing ${REPOSITORY_URI}:${IMAGE_TAG}..."
-  aws ecr get-login-password --region "${AWS_REGION}" | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-  docker build --platform linux/amd64 --tag "${REPOSITORY_URI}:${IMAGE_TAG}" "${PROJECT_DIRECTORY}"
-  docker push "${REPOSITORY_URI}:${IMAGE_TAG}"
-else
-  echo "Promoting the existing image ${REPOSITORY_URI}:${IMAGE_TAG}..."
-  if ! aws ecr describe-images \
-    --region "${AWS_REGION}" \
-    --repository-name "${REPOSITORY_NAME}" \
-    --image-ids "imageTag=${IMAGE_TAG}" >/dev/null 2>&1; then
-    echo "Image tag ${IMAGE_TAG} is not present in ${REPOSITORY_NAME}. Deploy it to dev first." >&2
-    exit 1
-  fi
+echo "Deploying the existing image ${REPOSITORY_URI}:${IMAGE_TAG}..."
+if ! aws ecr describe-images \
+  --region "${AWS_REGION}" \
+  --repository-name "${REPOSITORY_NAME}" \
+  --image-ids "imageTag=${IMAGE_TAG}" >/dev/null 2>&1; then
+  echo "Image tag ${IMAGE_TAG} is not present in ${REPOSITORY_NAME}. Publish it first with scripts/publish-image.sh." >&2
+  exit 1
 fi
 
 echo "Deploying the application host with CloudFormation..."
