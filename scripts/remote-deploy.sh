@@ -9,6 +9,30 @@ set -euo pipefail
 
 # Optional. Without a collector endpoint the backend runs uninstrumented.
 OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+OTLP_ENDPOINT_PARAMETER="${OTLP_ENDPOINT_PARAMETER:-/interview-share-canvas/observability/otlp-endpoint}"
+
+# The observability stack publishes its collector address to this parameter, and
+# rewrites it whenever its instance is replaced. Reading it here rather than
+# baking the address into the pipeline is the entire coupling between the two
+# stacks: no shared network, no cross-stack reference, and a private address
+# that stays correct. An explicit endpoint still wins, and a missing parameter
+# just means the observability stack is not deployed.
+if [[ -z "${OTEL_EXPORTER_OTLP_ENDPOINT}" ]]; then
+  OTEL_EXPORTER_OTLP_ENDPOINT="$(aws ssm get-parameter \
+    --region "${AWS_REGION}" \
+    --name "${OTLP_ENDPOINT_PARAMETER}" \
+    --query Parameter.Value \
+    --output text 2>/dev/null || true)"
+  if [[ "${OTEL_EXPORTER_OTLP_ENDPOINT}" == "None" ]]; then
+    OTEL_EXPORTER_OTLP_ENDPOINT=""
+  fi
+fi
+
+if [[ -n "${OTEL_EXPORTER_OTLP_ENDPOINT}" ]]; then
+  echo "Exporting telemetry to ${OTEL_EXPORTER_OTLP_ENDPOINT}"
+else
+  echo "No collector endpoint; the application will run uninstrumented."
+fi
 
 APPLICATION_DIRECTORY="/opt/interview-share-canvas"
 COMPOSE_FILE="${APPLICATION_DIRECTORY}/docker-compose.yaml"

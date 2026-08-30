@@ -1,28 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Interview Share Canvas on a single EC2 host with durable EBS storage.
+Description: The Interview Share Canvas observability host, separate from every application environment.
 
 Parameters:
-  EnvironmentName:
-    Type: String
-    AllowedValues:
-      - dev
-      - prod
-    Description: Environment this stack instance represents.
-  RepositoryName:
-    Type: String
-    Default: interview-share-canvas-app
-    Description: Shared ECR repository owned by the registry stack.
-  ImageTag:
-    Type: String
-    Default: latest
-    AllowedPattern: "^[A-Za-z0-9_.-]{1,128}$"
-  OtlpEndpointParameterName:
-    Type: String
-    Default: /interview-share-canvas/observability/otlp-endpoint
-    Description: >-
-      Published by the observability stack. This host reads it at deploy time to
-      learn where to send telemetry, which is the only link between the two
-      stacks. Absent, the application runs uninstrumented.
   VpcId:
     Type: AWS::EC2::VPC::Id
   SubnetId:
@@ -30,47 +9,74 @@ Parameters:
   AvailabilityZone:
     Type: AWS::EC2::AvailabilityZone::Name
     Description: Must be the Availability Zone containing SubnetId.
+  AllowedOtlpCidr:
+    Type: String
+    Description: >-
+      Who may send telemetry. Defaults to nothing; the deploy script passes the
+      VPC's own CIDR so the application hosts can reach the collector and the
+      internet cannot.
+    AllowedPattern: "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/(?:[0-9]|[12][0-9]|3[0-2])$"
   InstanceType:
     Type: String
-    Default: t3.micro
+    Default: t3.small
     AllowedValues:
-      - t3.micro
       - t3.small
       - t3.medium
+      - t3.large
+    Description: >-
+      Five containers share this host. t3.micro is not enough memory for
+      Prometheus, Loki, and Tempo at the same time.
   DataVolumeSize:
     Type: Number
-    Default: 10
+    Default: 20
     MinValue: 8
     MaxValue: 1024
-  AllowedHttpCidr:
+    Description: Telemetry outlives the instance on this volume.
+  GrafanaPasswordParameter:
     Type: String
-    Default: 0.0.0.0/0
-    AllowedPattern: "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/(?:[0-9]|[12][0-9]|3[0-2])$"
+    Default: /interview-share-canvas/observability/grafana-admin-password
+    Description: >-
+      SecureString parameter holding the Grafana admin password. The host reads
+      it itself, so the password never travels through a Systems Manager command.
+  OtlpEndpointParameterName:
+    Type: String
+    Default: /interview-share-canvas/observability/otlp-endpoint
+    Description: >-
+      Where this stack publishes its collector address. Application hosts read
+      this parameter, which is the whole connection between the two stacks.
   LatestAmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
 
 Resources:
-  ApplicationSecurityGroup:
+  ObservabilitySecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Public HTTP access to Interview Share Canvas
+      GroupDescription: OTLP ingest for Interview Share Canvas telemetry
       VpcId: !Ref VpcId
       SecurityGroupIngress:
-        - Description: Application HTTP traffic
+        - Description: OTLP over gRPC from inside the VPC
           IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: !Ref AllowedHttpCidr
+          FromPort: 4317
+          ToPort: 4317
+          CidrIp: !Ref AllowedOtlpCidr
+        - Description: OTLP over HTTP from inside the VPC
+          IpProtocol: tcp
+          FromPort: 4318
+          ToPort: 4318
+          CidrIp: !Ref AllowedOtlpCidr
+      # Grafana, Prometheus, Loki, and Tempo are deliberately absent. They bind
+      # to the host's loopback address and are reached with a Systems Manager
+      # port forwarding session, so no dashboard is exposed to the internet.
       SecurityGroupEgress:
-        - Description: Package, ECR, and Systems Manager access
+        - Description: Container images, package updates, and Systems Manager
           IpProtocol: -1
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub ${AWS::StackName}-app
+          Value: !Sub ${AWS::StackName}
 
-  ApplicationRole:
+  ObservabilityRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -85,35 +91,27 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
       Policies:
-        - PolicyName: PullApplicationImage
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - ecr:GetAuthorizationToken
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - ecr:BatchCheckLayerAvailability
-                  - ecr:GetDownloadUrlForLayer
-                  - ecr:BatchGetImage
-                Resource: !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RepositoryName}
-        - PolicyName: ReadObservabilityEndpoint
+        - PolicyName: ReadGrafanaPassword
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action: ssm:GetParameter
-                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${OtlpEndpointParameterName}
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GrafanaPasswordParameter}
+              - Effect: Allow
+                Action: kms:Decrypt
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    kms:ViaService: !Sub ssm.${AWS::Region}.amazonaws.com
 
-  ApplicationInstanceProfile:
+  ObservabilityInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
       Roles:
-        - !Ref ApplicationRole
+        - !Ref ObservabilityRole
 
-  ApplicationDataVolume:
+  ObservabilityDataVolume:
     Type: AWS::EC2::Volume
     DeletionPolicy: Snapshot
     UpdateReplacePolicy: Snapshot
@@ -125,18 +123,16 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${AWS::StackName}-data
-        - Key: Environment
-          Value: !Ref EnvironmentName
 
-  ApplicationInstance:
+  ObservabilityInstance:
     Type: AWS::EC2::Instance
     Properties:
       ImageId: !Ref LatestAmiId
       InstanceType: !Ref InstanceType
-      IamInstanceProfile: !Ref ApplicationInstanceProfile
+      IamInstanceProfile: !Ref ObservabilityInstanceProfile
       SubnetId: !Ref SubnetId
       SecurityGroupIds:
-        - !Ref ApplicationSecurityGroup
+        - !Ref ObservabilitySecurityGroup
       MetadataOptions:
         HttpEndpoint: enabled
         HttpTokens: required
@@ -149,15 +145,9 @@ Resources:
             VolumeType: gp3
       Tags:
         - Key: Name
-          Value: !Sub ${AWS::StackName}-app
-        - Key: Environment
-          Value: !Ref EnvironmentName
-        # Records the image this host was last deployed with. It also keeps
-        # ImageTag affecting a real resource: without this the parameter changes
-        # produce an empty changeset, the stack update is skipped, and the stored
-        # ImageTag silently goes stale while the host runs something else.
-        - Key: DeployedImageTag
-          Value: !Ref ImageTag
+          Value: !Sub ${AWS::StackName}
+        - Key: Role
+          Value: observability
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
@@ -179,7 +169,7 @@ Resources:
           rm --force "$COMPOSE_ASSET" "$COMPOSE_ASSET.sha256"
           docker compose version
 
-          DATA_VOLUME_SERIAL="${ApplicationDataVolume}"
+          DATA_VOLUME_SERIAL="${ObservabilityDataVolume}"
           DATA_VOLUME_SERIAL=$(echo "$DATA_VOLUME_SERIAL" | tr -d '-')
           DATA_DEVICE=""
           for attempt in $(seq 1 60); do
@@ -201,33 +191,40 @@ Resources:
           fi
           mountpoint --quiet /data || mount /data
 
-          mkdir -p /data/postgres
-          mkdir -p /opt/interview-share-canvas
+          mkdir -p /opt/interview-share-canvas-observability
 
-  ApplicationDataVolumeAttachment:
+  ObservabilityDataVolumeAttachment:
     Type: AWS::EC2::VolumeAttachment
     Properties:
       Device: /dev/sdf
-      InstanceId: !Ref ApplicationInstance
-      VolumeId: !Ref ApplicationDataVolume
+      InstanceId: !Ref ObservabilityInstance
+      VolumeId: !Ref ObservabilityDataVolume
 
-  ApplicationElasticIp:
-    Type: AWS::EC2::EIP
+  # The only thing the application stacks read from this one. Replacing the
+  # instance rewrites it, so a redeployed application host picks up the new
+  # address without either stack referencing the other.
+  OtlpEndpointParameter:
+    Type: AWS::SSM::Parameter
     Properties:
-      Domain: vpc
-      InstanceId: !Ref ApplicationInstance
-      Tags:
-        - Key: Name
-          Value: !Sub ${AWS::StackName}-app
+      Name: !Ref OtlpEndpointParameterName
+      Type: String
+      Description: OTLP HTTP endpoint of the Interview Share Canvas collector.
+      Value: !Sub http://${ObservabilityInstance.PrivateIp}:4318
 
 Outputs:
-  ApplicationUrl:
-    Description: Public application URL.
-    Value: !Sub http://${ApplicationElasticIp}
-  HealthCheckUrl:
-    Value: !Sub http://${ApplicationElasticIp}/health
   InstanceId:
     Description: Connect through AWS Systems Manager Session Manager.
-    Value: !Ref ApplicationInstance
+    Value: !Ref ObservabilityInstance
+  OtlpEndpoint:
+    Description: What the application hosts export to.
+    Value: !Sub http://${ObservabilityInstance.PrivateIp}:4318
+  OtlpEndpointParameterName:
+    Value: !Ref OtlpEndpointParameterName
+  GrafanaTunnelCommand:
+    Description: Run this, then open http://127.0.0.1:3000.
+    Value: !Sub >-
+      aws ssm start-session --region ${AWS::Region} --target ${ObservabilityInstance}
+      --document-name AWS-StartPortForwardingSession
+      --parameters '{"portNumber":["3000"],"localPortNumber":["3000"]}'
   DataVolumeId:
-    Value: !Ref ApplicationDataVolume
+    Value: !Ref ObservabilityDataVolume

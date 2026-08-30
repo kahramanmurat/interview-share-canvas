@@ -79,7 +79,12 @@ if [[ "${PING_STATUS:-}" != "Online" ]]; then
   exit 1
 fi
 
-DEPLOY_PAYLOAD_BASE64="$(tar --no-xattrs -c -C "${PROJECT_DIRECTORY}" -f - scripts/remote-deploy.sh docker-compose.yaml | base64 | tr -d '\n')"
+# COPYFILE_DISABLE stops macOS tar from embedding AppleDouble ._ entries for
+# files carrying extended attributes. macOS hides them again on extract, so the
+# payload looks clean locally, while GNU tar on the host writes them as real
+# files. Grafana then tries to parse ._dashboards.yaml as provisioning config
+# and refuses to start.
+DEPLOY_PAYLOAD_BASE64="$(COPYFILE_DISABLE=1 tar --no-xattrs -c -C "${PROJECT_DIRECTORY}" -f - scripts/remote-deploy.sh docker-compose.yaml | base64 | tr -d '\n')"
 REMOTE_COMMAND="set -euo pipefail; mkdir -p /opt/interview-share-canvas; echo ${DEPLOY_PAYLOAD_BASE64} | base64 --decode | tar -x -C /opt/interview-share-canvas -f -; AWS_REGION=${AWS_REGION} IMAGE_URI=${REPOSITORY_URI}:${IMAGE_TAG} IMAGE_TAG=${IMAGE_TAG} ENVIRONMENT_NAME=${ENVIRONMENT_NAME} PUBLIC_BASE_URL=${APPLICATION_URL} OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT} bash /opt/interview-share-canvas/scripts/remote-deploy.sh"
 COMMAND_ID="$(aws ssm send-command \
   --region "${AWS_REGION}" \
