@@ -213,13 +213,6 @@ because it does not exist until step 7.
    interview content.
 2. Backups of the production data volume. `DeletionPolicy: Snapshot` protects
    against stack deletion, not against data corruption.
-3. **Database parity.** Compose, the integration suite, and the Playwright test
-   all run PostgreSQL, while both AWS environments run SQLite on EBS. Managed
-   Postgres was evaluated on 2026-08-30 and deliberately not adopted, to avoid
-   enlarging this change. The gap remains: the engine under test is not the
-   engine in production. Revisit before the schema grows, since
-   `Base.metadata.create_all` in `backend/store.py` creates missing tables but
-   never alters existing ones.
 3. Deleting the retired repository and OIDC stack, per step 10.
 
 ## Cost
