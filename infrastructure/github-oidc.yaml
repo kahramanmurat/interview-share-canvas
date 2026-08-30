@@ -130,6 +130,7 @@ Resources:
                   - cloudformation:DescribeStacks
                   - cloudformation:ExecuteChangeSet
                   - cloudformation:GetTemplate
+                  - cloudformation:GetTemplateSummary
                 Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ApplicationStackName}/*
               - Sid: PassCloudFormationExecutionRole
                 Effect: Allow
@@ -161,13 +162,23 @@ Resources:
                   - ec2:DescribeSubnets
                   - ec2:DescribeVpcs
                 Resource: "*"
-              - Sid: RunDeploymentThroughSystemsManager
+              - Sid: TrackSystemsManagerCommands
                 Effect: Allow
                 Action:
                   - ssm:DescribeInstanceInformation
                   - ssm:GetCommandInvocation
-                  - ssm:SendCommand
                 Resource: "*"
+              - Sid: RunDeploymentOnApplicationInstances
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*
+                Condition:
+                  StringEquals:
+                    ssm:resourceTag/aws:cloudformation:stack-name: !Ref ApplicationStackName
+              - Sid: RunDeploymentThroughRunShellScript
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunShellScript
 
 Outputs:
   GitHubRoleArn:
