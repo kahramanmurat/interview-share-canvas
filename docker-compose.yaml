@@ -1,16 +1,20 @@
 services:
   app:
     build: .
+    image: ${APP_IMAGE:-interview-share-canvas:local}
+    restart: ${RESTART_POLICY:-no}
     ports:
       - "${APP_PORT:-8091}:8091"
     environment:
-      DATABASE_URL: postgresql+psycopg://interview:interview@postgres:5432/interview_share_canvas
+      - DATABASE_URL=postgresql+psycopg://interview:interview@postgres:5432/interview_share_canvas
+      - PUBLIC_BASE_URL
     depends_on:
       postgres:
         condition: service_healthy
 
   postgres:
     image: postgres:17-bookworm
+    restart: ${RESTART_POLICY:-no}
     environment:
       POSTGRES_DB: interview_share_canvas
       POSTGRES_USER: interview
@@ -21,7 +25,7 @@ services:
       timeout: 5s
       retries: 10
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - ${POSTGRES_DATA:-postgres-data}:/var/lib/postgresql/data
 
 volumes:
   postgres-data:
