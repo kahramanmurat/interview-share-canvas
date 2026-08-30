@@ -81,10 +81,36 @@ jobs:
         if: always()
         run: docker compose -p "$COMPOSE_PROJECT" down --volumes --remove-orphans
 
-  deploy-dev:
-    name: Deploy to dev
+  build:
+    name: Build and publish image
     if: github.event_name != 'pull_request'
     needs: compose-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image_tag: ${{ steps.publish.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Configure AWS credentials through GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Build and publish the image to ECR
+        id: publish
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          REPOSITORY_NAME: ${{ vars.AWS_REPOSITORY_NAME }}
+        run: |
+          image_tag="$(date -u +%Y%m%d-%H%M%S)-$(git rev-parse --short=7 HEAD)"
+          echo "image_tag=$image_tag" >> "$GITHUB_OUTPUT"
+          IMAGE_TAG="$image_tag" ./scripts/publish-image.sh
+
+  deploy-dev:
+    name: Deploy to dev
+    needs: build
     runs-on: ubuntu-latest
     environment: development
     permissions:
@@ -97,15 +123,14 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-      - name: Build, publish, and deploy
+      - name: Deploy the published image
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
           STACK_NAME: ${{ vars.AWS_STACK_NAME }}
           ENVIRONMENT_NAME: dev
           REPOSITORY_NAME: ${{ vars.AWS_REPOSITORY_NAME }}
           CLOUDFORMATION_ROLE_ARN: ${{ vars.AWS_CLOUDFORMATION_ROLE_ARN }}
-          PUBLISH_IMAGE: "true"
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
         run: ./scripts/deploy-aws.sh
       - name: Validate deployment health
         env:
@@ -122,7 +147,7 @@ jobs:
 
   deploy-prod:
     name: Deploy to production
-    needs: deploy-dev
+    needs: [build, deploy-dev]
     runs-on: ubuntu-latest
     environment: production
     permissions:
@@ -142,8 +167,7 @@ jobs:
           ENVIRONMENT_NAME: prod
           REPOSITORY_NAME: ${{ vars.AWS_REPOSITORY_NAME }}
           CLOUDFORMATION_ROLE_ARN: ${{ vars.AWS_CLOUDFORMATION_ROLE_ARN }}
-          PUBLISH_IMAGE: "false"
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
         run: ./scripts/deploy-aws.sh
       - name: Validate deployment health
         env:
