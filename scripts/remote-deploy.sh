@@ -14,6 +14,15 @@ if [[ ! -f "${COMPOSE_FILE}" ]]; then
   exit 1
 fi
 
+# Systems Manager reports Online early in boot, before cloud-init has finished
+# running UserData, which is what installs Docker and mounts /data. Without this
+# wait the first deploy to a new instance fails with "Unit file docker.service
+# does not exist".
+if ! cloud-init status --wait; then
+  echo "cloud-init did not finish successfully; the host is not prepared." >&2
+  exit 1
+fi
+
 systemctl enable --now docker
 docker compose version >/dev/null
 

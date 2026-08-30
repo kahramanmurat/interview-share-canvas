@@ -83,7 +83,7 @@ if [[ "${PING_STATUS:-}" != "Online" ]]; then
   exit 1
 fi
 
-DEPLOY_PAYLOAD_BASE64="$(tar -c -C "${PROJECT_DIRECTORY}" -f - scripts/remote-deploy.sh docker-compose.yaml | base64 | tr -d '\n')"
+DEPLOY_PAYLOAD_BASE64="$(tar --no-xattrs -c -C "${PROJECT_DIRECTORY}" -f - scripts/remote-deploy.sh docker-compose.yaml | base64 | tr -d '\n')"
 REMOTE_COMMAND="set -euo pipefail; mkdir -p /opt/interview-share-canvas; echo ${DEPLOY_PAYLOAD_BASE64} | base64 --decode | tar -x -C /opt/interview-share-canvas -f -; AWS_REGION=${AWS_REGION} IMAGE_URI=${REPOSITORY_URI}:${IMAGE_TAG} PUBLIC_BASE_URL=${APPLICATION_URL} bash /opt/interview-share-canvas/scripts/remote-deploy.sh"
 COMMAND_ID="$(aws ssm send-command \
   --region "${AWS_REGION}" \
