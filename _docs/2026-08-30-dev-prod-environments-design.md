@@ -18,6 +18,7 @@ only after a human approves the promotion.
 | Isolation | Separate stacks in AWS account `963656558707` | The account is not part of an AWS Organization, so account-level isolation would need an account created out of band. Separate stacks still give each environment its own compute, storage, address, and IAM roles. |
 | Artifact | Build once, promote the image | Prod runs the identical image that passed dev. Requires moving the ECR repository out of the per-environment stack. |
 | Dev stack name | Recreate as `interview-share-canvas-dev` | CloudFormation cannot rename a stack. Symmetric naming is worth a dev IP change and a dev database reset; `ApplicationDataVolume` uses `DeletionPolicy: Snapshot`, so the old data is recoverable. |
+| Database | PostgreSQL, by running the existing `docker-compose.yaml` on the host | The host now runs the exact stack the integration and Playwright suites validate, instead of SQLite. No managed database service is introduced. The EBS volume holds the Postgres data directory rather than a SQLite file. |
 | TLS | Out of scope, tracked as a follow-up | The stack serves plain HTTP. Naming a copy "production" does not change that. Recorded below rather than silently expanded into this change. |
 
 ## Target architecture
@@ -65,6 +66,14 @@ Outputs: `RepositoryUri`, `RepositoryArn`, `RepositoryName`.
   purpose was to create the repository before the first image existed; a
   separate registry stack removes that ordering problem, so every resource is
   created unconditionally.
+- **`UserData` becomes host preparation only**: install Docker and the pinned
+  Compose plugin, mount the EBS volume, and stop. It no longer starts the
+  application, so `ImageTag` disappears from `UserData` entirely. Two
+  consequences: the roughly twenty lines duplicated between `UserData` and
+  `remote-deploy.sh` collapse into one place, and because the image tag no
+  longer appears in `UserData`, a deploy can never trigger instance
+  replacement. `scripts/remote-deploy.sh`, run over SSM, becomes the single
+  path that starts the application.
 - Remove the `RepositoryUri` output, which now belongs to the registry stack.
 - Add an `EnvironmentName` parameter, tagged onto the instance and volume so
   environment is visible in the console and in cost reports.
@@ -106,8 +115,43 @@ The flag is a convenience, not the security control. The control is IAM: the
 prod role has no ECR write permission, so a prod deploy cannot publish an image
 even if the flag were wrong.
 
-`scripts/remote-deploy.sh` needs no changes. It already takes every input as an
-environment variable and derives the registry host from `IMAGE_URI`.
+### Changed: `docker-compose.yaml`
+
+Parameterised so one file serves local development, CI, and the EC2 host:
+
+- `app.image: ${APP_IMAGE:-interview-share-canvas:local}` alongside the existing
+  `build: .`, so the host can run a published ECR image while local runs build.
+- `postgres` data location becomes `${POSTGRES_DATA:-postgres-data}`. Unset, it
+  is the existing named volume; on the host it is `/data/postgres` on the EBS
+  volume, so a path substitutes for the volume with no override file.
+- `PUBLIC_BASE_URL` is passed through in list form (`- PUBLIC_BASE_URL`), so it
+  reaches the container only when set and local behaviour is unchanged.
+- `restart: ${RESTART_POLICY:-no}` on both services.
+
+Local and CI behaviour must be byte-for-byte identical after this change. The
+existing suites are the proof.
+
+### Changed: `scripts/remote-deploy.sh`
+
+Previously assumed a single `docker run`. It now writes the compose file to
+`/opt/interview-share-canvas/` and brings the stack up with
+`docker compose up --detach --no-build --pull always --wait`, with
+`POSTGRES_DATA=/data/postgres`, `APP_PORT=80`, and `RESTART_POLICY=unless-stopped`.
+
+`scripts/deploy-aws.sh` ships `docker-compose.yaml` to the host in the same
+base64 payload that already carries `remote-deploy.sh`.
+
+### Verified constraint: Compose is not packaged on Amazon Linux 2023
+
+Checked on the running host on 2026-08-30: `docker compose` is not a docker
+command, `dnf list --available docker-compose-plugin` returns `No matching
+Packages`, and `/usr/libexec/docker/cli-plugins/` contains only `docker-buildx`.
+
+The Compose plugin must therefore be installed explicitly in `UserData`, by
+downloading a pinned release binary to
+`/usr/libexec/docker/cli-plugins/docker-compose` and verifying it against the
+release's published `.sha256` before use. Pinned version: `v5.5.0`. An
+unverified download must not be executed.
 
 ### Changed: `.github/workflows/ci-cd.yaml`
 
