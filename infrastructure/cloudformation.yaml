@@ -2,13 +2,16 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Interview Share Canvas on a single EC2 host with durable EBS storage.
 
 Parameters:
-  DeploymentMode:
+  EnvironmentName:
     Type: String
-    Default: Bootstrap
     AllowedValues:
-      - Bootstrap
-      - Deploy
-    Description: Bootstrap creates the ECR repository; Deploy also creates the application host.
+      - dev
+      - prod
+    Description: Environment this stack instance represents.
+  RepositoryName:
+    Type: String
+    Default: interview-share-canvas-app
+    Description: Shared ECR repository owned by the registry stack.
   ImageTag:
     Type: String
     Default: latest
@@ -40,39 +43,9 @@ Parameters:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
 
-Conditions:
-  IsDeploy: !Equals [!Ref DeploymentMode, Deploy]
-
 Resources:
-  ContainerRepository:
-    Type: AWS::ECR::Repository
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      RepositoryName: !Ref AWS::StackName
-      ImageScanningConfiguration:
-        ScanOnPush: true
-      ImageTagMutability: IMMUTABLE
-      LifecyclePolicy:
-        LifecyclePolicyText: |
-          {
-            "rules": [
-              {
-                "rulePriority": 1,
-                "description": "Keep the 20 newest images",
-                "selection": {
-                  "tagStatus": "any",
-                  "countType": "imageCountMoreThan",
-                  "countNumber": 20
-                },
-                "action": {"type": "expire"}
-              }
-            ]
-          }
-
   ApplicationSecurityGroup:
     Type: AWS::EC2::SecurityGroup
-    Condition: IsDeploy
     Properties:
       GroupDescription: Public HTTP access to Interview Share Canvas
       VpcId: !Ref VpcId
@@ -92,7 +65,6 @@ Resources:
 
   ApplicationRole:
     Type: AWS::IAM::Role
-    Condition: IsDeploy
     Properties:
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -119,18 +91,16 @@ Resources:
                   - ecr:BatchCheckLayerAvailability
                   - ecr:GetDownloadUrlForLayer
                   - ecr:BatchGetImage
-                Resource: !GetAtt ContainerRepository.Arn
+                Resource: !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RepositoryName}
 
   ApplicationInstanceProfile:
     Type: AWS::IAM::InstanceProfile
-    Condition: IsDeploy
     Properties:
       Roles:
         - !Ref ApplicationRole
 
   ApplicationDataVolume:
     Type: AWS::EC2::Volume
-    Condition: IsDeploy
     DeletionPolicy: Snapshot
     UpdateReplacePolicy: Snapshot
     Properties:
@@ -141,10 +111,11 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${AWS::StackName}-data
+        - Key: Environment
+          Value: !Ref EnvironmentName
 
   ApplicationInstance:
     Type: AWS::EC2::Instance
-    Condition: IsDeploy
     Properties:
       ImageId: !Ref LatestAmiId
       InstanceType: !Ref InstanceType
@@ -165,6 +136,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${AWS::StackName}-app
+        - Key: Environment
+          Value: !Ref EnvironmentName
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
@@ -172,6 +145,19 @@ Resources:
 
           dnf install -y docker xfsprogs
           systemctl enable --now docker
+
+          COMPOSE_VERSION=v5.5.0
+          COMPOSE_PLUGIN_DIRECTORY=/usr/libexec/docker/cli-plugins
+          COMPOSE_ASSET=docker-compose-linux-x86_64
+          COMPOSE_RELEASE_URL=https://github.com/docker/compose/releases/download/$COMPOSE_VERSION
+          mkdir -p "$COMPOSE_PLUGIN_DIRECTORY"
+          cd /tmp
+          curl --fail --silent --show-error --location --output "$COMPOSE_ASSET" "$COMPOSE_RELEASE_URL/$COMPOSE_ASSET"
+          curl --fail --silent --show-error --location --output "$COMPOSE_ASSET.sha256" "$COMPOSE_RELEASE_URL/$COMPOSE_ASSET.sha256"
+          sha256sum --check "$COMPOSE_ASSET.sha256"
+          install --mode 0755 "$COMPOSE_ASSET" "$COMPOSE_PLUGIN_DIRECTORY/docker-compose"
+          rm --force "$COMPOSE_ASSET" "$COMPOSE_ASSET.sha256"
+          docker compose version
 
           DATA_VOLUME_SERIAL="${ApplicationDataVolume}"
           DATA_VOLUME_SERIAL=$(echo "$DATA_VOLUME_SERIAL" | tr -d '-')
@@ -193,35 +179,13 @@ Resources:
           if ! grep -q "UUID=$DATA_UUID" /etc/fstab; then
             echo "UUID=$DATA_UUID /data xfs defaults,nofail 0 2" >> /etc/fstab
           fi
-          mount /data
-          chown -R 10001:10001 /data
+          mountpoint --quiet /data || mount /data
 
-          aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.${AWS::URLSuffix}
-          IMAGE_URI="${ContainerRepository.RepositoryUri}:${ImageTag}"
-          docker pull "$IMAGE_URI"
-
-          TOKEN=$(curl --fail --silent --show-error --request PUT --header "X-aws-ec2-metadata-token-ttl-seconds: 300" http://169.254.169.254/latest/api/token)
-          PUBLIC_IP=""
-          for attempt in $(seq 1 60); do
-            PUBLIC_IP=$(curl --fail --silent --show-error --header "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4 || true)
-            if [ -n "$PUBLIC_IP" ]; then
-              break
-            fi
-            sleep 2
-          done
-          test -n "$PUBLIC_IP"
-
-          docker run --detach \
-            --name interview-share-canvas \
-            --restart unless-stopped \
-            --publish 80:8091 \
-            --volume /data:/data:Z \
-            --env PUBLIC_BASE_URL="http://$PUBLIC_IP" \
-            "$IMAGE_URI"
+          mkdir -p /data/postgres
+          mkdir -p /opt/interview-share-canvas
 
   ApplicationDataVolumeAttachment:
     Type: AWS::EC2::VolumeAttachment
-    Condition: IsDeploy
     Properties:
       Device: /dev/sdf
       InstanceId: !Ref ApplicationInstance
@@ -229,7 +193,6 @@ Resources:
 
   ApplicationElasticIp:
     Type: AWS::EC2::EIP
-    Condition: IsDeploy
     Properties:
       Domain: vpc
       InstanceId: !Ref ApplicationInstance
@@ -238,20 +201,13 @@ Resources:
           Value: !Sub ${AWS::StackName}-app
 
 Outputs:
-  RepositoryUri:
-    Description: ECR repository used by the deployment script.
-    Value: !GetAtt ContainerRepository.RepositoryUri
   ApplicationUrl:
-    Condition: IsDeploy
     Description: Public application URL.
     Value: !Sub http://${ApplicationElasticIp}
   HealthCheckUrl:
-    Condition: IsDeploy
     Value: !Sub http://${ApplicationElasticIp}/health
   InstanceId:
-    Condition: IsDeploy
     Description: Connect through AWS Systems Manager Session Manager.
     Value: !Ref ApplicationInstance
   DataVolumeId:
-    Condition: IsDeploy
     Value: !Ref ApplicationDataVolume
