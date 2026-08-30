@@ -1,25 +1,21 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: GitHub Actions OIDC and CloudFormation execution roles for Interview Share Canvas.
+Description: GitHub Actions OIDC and CloudFormation execution roles for one Interview Share Canvas environment.
 
 Parameters:
-  GitHubOrganization:
-    Type: String
-    Default: kahramanmurat
-  GitHubOrganizationId:
-    Type: String
-    Default: "1132768"
-  GitHubRepository:
-    Type: String
-    Default: interview-share-canvas
-  GitHubRepositoryId:
-    Type: String
-    Default: "1350826572"
-  GitHubBranch:
-    Type: String
-    Default: main
   ApplicationStackName:
     Type: String
-    Default: interview-share-canvas
+    Description: The application stack this environment deploys, for example interview-share-canvas-dev.
+  OidcSubject:
+    Type: String
+    Description: The exact sub claim observed from the subject probe. Never construct this by hand.
+  RepositoryName:
+    Type: String
+    Default: interview-share-canvas-app
+  AllowImagePublish:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Only the environment that builds images may publish them.
   CreateOidcProvider:
     Type: String
     Default: "false"
@@ -28,6 +24,7 @@ Parameters:
 
 Conditions:
   ShouldCreateOidcProvider: !Equals [!Ref CreateOidcProvider, "true"]
+  CanPublishImages: !Equals [!Ref AllowImagePublish, "true"]
 
 Resources:
   GitHubOidcProvider:
@@ -66,10 +63,6 @@ Resources:
                   - ssm:GetParameter
                   - ssm:GetParameters
                 Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}::parameter/aws/service/ami-amazon-linux-latest/*
-              - Sid: ManageApplicationRepository
-                Effect: Allow
-                Action: ecr:*
-                Resource: !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ApplicationStackName}
               - Sid: ManageApplicationRoles
                 Effect: Allow
                 Action:
@@ -114,7 +107,7 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOrganization}@${GitHubOrganizationId}/${GitHubRepository}@${GitHubRepositoryId}:ref:refs/heads/${GitHubBranch}
+                token.actions.githubusercontent.com:sub: !Ref OidcSubject
       Policies:
         - PolicyName: DeployApplication
           PolicyDocument:
@@ -139,23 +132,32 @@ Resources:
                 Condition:
                   StringEquals:
                     iam:PassedToService: cloudformation.amazonaws.com
-              - Sid: PushApplicationImages
+              - Sid: ReadApplicationImages
                 Effect: Allow
-                Action:
-                  - ecr:BatchCheckLayerAvailability
-                  - ecr:BatchGetImage
-                  - ecr:CompleteLayerUpload
-                  - ecr:DescribeImages
-                  - ecr:DescribeRepositories
-                  - ecr:GetDownloadUrlForLayer
-                  - ecr:InitiateLayerUpload
-                  - ecr:PutImage
-                  - ecr:UploadLayerPart
-                Resource: !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ApplicationStackName}
-              - Sid: AuthenticateToEcr
-                Effect: Allow
-                Action: ecr:GetAuthorizationToken
-                Resource: "*"
+                Action: ecr:DescribeImages
+                Resource: !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RepositoryName}
+              - !If
+                - CanPublishImages
+                - Sid: PublishApplicationImages
+                  Effect: Allow
+                  Action:
+                    - ecr:BatchCheckLayerAvailability
+                    - ecr:BatchGetImage
+                    - ecr:CompleteLayerUpload
+                    - ecr:DescribeRepositories
+                    - ecr:GetDownloadUrlForLayer
+                    - ecr:InitiateLayerUpload
+                    - ecr:PutImage
+                    - ecr:UploadLayerPart
+                  Resource: !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${RepositoryName}
+                - !Ref AWS::NoValue
+              - !If
+                - CanPublishImages
+                - Sid: AuthenticateToEcr
+                  Effect: Allow
+                  Action: ecr:GetAuthorizationToken
+                  Resource: "*"
+                - !Ref AWS::NoValue
               - Sid: DiscoverNetwork
                 Effect: Allow
                 Action:
