@@ -4,7 +4,7 @@ SHELL := /bin/bash
 HOST ?= 127.0.0.1
 PORT ?= 8091
 
-.PHONY: help setup install backend frontend run dev test e2e check
+.PHONY: help setup install backend frontend run dev test e2e check observability observability-down
 
 help:
 	@echo "Interview Share Canvas"
@@ -16,6 +16,9 @@ help:
 	@echo "  make test       Run the backend tests"
 	@echo "  make e2e        Run the Playwright collaboration test"
 	@echo "  make check      Verify the lockfile and run tests"
+	@echo ""
+	@echo "  make observability       Start Grafana, Prometheus, Loki, Tempo, and the collector"
+	@echo "  make observability-down  Stop them, keeping the collected telemetry"
 	@echo ""
 	@echo "App and API docs: http://$(HOST):$(PORT)"
 
@@ -44,3 +47,11 @@ e2e:
 check:
 	uv lock --check
 	uv run pytest
+
+observability:
+	docker compose -f observability/docker-compose.yaml up --detach
+	@echo "Grafana: http://127.0.0.1:3000  OTLP: http://127.0.0.1:4318"
+	@echo "Point the API at it with OTEL_EXPORTER_OTLP_ENDPOINT, see the README."
+
+observability-down:
+	docker compose -f observability/docker-compose.yaml down

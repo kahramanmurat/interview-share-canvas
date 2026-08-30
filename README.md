@@ -11,6 +11,7 @@ frontend, and SQLite or PostgreSQL persistence.
 | `frontend/` | Static frontend, its `node build.mjs` build, and Node tests |
 | `integration/` | API tests that run against a live Compose stack |
 | `e2e/` | Playwright two-browser collaboration test |
+| `observability/` | A separate Compose project: OpenTelemetry Collector, Prometheus, Loki, Tempo, and Grafana, for the telemetry the backend exports |
 | `infrastructure/` | CloudFormation: `registry.yaml` owns the shared ECR registry, `cloudformation.yaml` is one application environment, `github-oidc.yaml` is one environment's GitHub OIDC roles |
 | `scripts/` | `deploy-aws.sh` and the `remote-deploy.sh` it runs on the host over SSM |
 | `openapi.yaml` | Committed API contract, asserted against the live routes by the backend tests |
@@ -295,15 +296,65 @@ turn a configured deployment off without changing its endpoint.
 The `/health` endpoint is not traced. It is polled by the Compose healthcheck
 and by the deploy script, and those spans would outnumber real traffic.
 
-To watch the telemetry locally, run any OTLP collector and point the backend at
-it:
+### The local observability stack
+
+`observability/` is a second Compose project holding somewhere for that
+telemetry to go: an OpenTelemetry Collector in front of Prometheus for metrics,
+Loki for logs, and Tempo for traces, with Grafana already pointed at all three.
 
 ```bash
+make observability
+```
+
+| Service | Address | Purpose |
+| --- | --- | --- |
+| Grafana | http://127.0.0.1:3000 | Dashboards and queries, anonymous admin, no login |
+| Collector | `127.0.0.1:4318` (HTTP), `127.0.0.1:4317` (gRPC) | The only address the application needs |
+| Prometheus | http://127.0.0.1:9090 | Metrics, 15 day retention |
+| Loki | http://127.0.0.1:3100 | Logs, 7 day retention |
+| Tempo | http://127.0.0.1:3200 | Traces, 7 day retention |
+
+It is a separate Compose project on purpose. Either stack starts, stops, and is
+rebuilt without the other: with no collector listening the application exports
+nothing, and the collector is happy to sit idle. Nothing in `observability/` is
+deployed to AWS.
+
+The application reaches the collector over the host rather than over a shared
+Compose network, so the endpoint differs by how the backend runs:
+
+```bash
+# Compose, which resolves the collector through the host gateway
+ENVIRONMENT_NAME=local IMAGE_TAG=$(git rev-parse --short=7 HEAD) \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318 \
+docker compose up --build
+
+# uvicorn on the host
+ENVIRONMENT_NAME=local IMAGE_TAG=$(git rev-parse --short=7 HEAD) \
 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
-ENVIRONMENT_NAME=local \
-IMAGE_TAG=$(git rev-parse --short=7 HEAD) \
 uv run uvicorn backend.main:app --port 8091
 ```
+
+Then exercise the app and look in Grafana. `service.name`,
+`deployment.environment.name`, and `service.version` survive the whole way
+through, as Loki stream labels, as Prometheus labels, and on the spans
+themselves, so every panel can be split by environment and by deployed version:
+
+- **Traces**, Tempo: `{resource.deployment.environment.name = "local"}`
+- **Logs**, Loki: `{service_name="interview-share-canvas", deployment_environment_name="local"}`
+- **Metrics**, Prometheus: `http_server_duration_milliseconds_count{deployment_environment_name="local"}`
+
+A log line links to the trace it was emitted inside, through the `trace_id` the
+SDK records on every record, and Tempo generates span metrics and a service
+graph into Prometheus, so request rate and latency per route come from the
+traces without the application counting anything itself.
+
+`make observability-down` stops the stack and keeps the collected telemetry in
+its volumes. `docker compose -f observability/docker-compose.yaml down
+--volumes` discards it.
+
+Grafana runs with anonymous admin access, which is why every query port above
+is published on the loopback address only. Do not put this stack on a routable
+interface as it stands.
 
 In AWS, the endpoint travels from the `OTEL_EXPORTER_OTLP_ENDPOINT` repository
 or environment variable in GitHub, through `scripts/deploy-aws.sh`, into the

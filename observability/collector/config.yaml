@@ -1,0 +1,62 @@
+# Everything the application exports arrives here and fans out to one backend
+# per signal: Tempo for traces, Prometheus for metrics, Loki for logs.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Rejects new data before the collector runs out of memory rather than being
+  # killed with everything still in its queues.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch:
+    timeout: 5s
+
+exporters:
+  otlp_grpc/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+  otlp_http/loki:
+    endpoint: http://loki:3100/otlp
+
+  # Prometheus scrapes this endpoint. resource_to_telemetry_conversion turns the
+  # resource attributes into labels, so a metric can be split by environment and
+  # by deployed version the same way a trace can.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      enabled: true
+
+service:
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                # Defaults to localhost, which Prometheus cannot reach from its
+                # own container.
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_grpc/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/loki]

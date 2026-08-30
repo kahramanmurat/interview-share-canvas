@@ -16,6 +16,11 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT
       - OTEL_EXPORTER_OTLP_HEADERS
       - OTEL_SERVICE_NAME
+    extra_hosts:
+      # Lets the container reach a collector published on the host, which is how
+      # it reaches the separate observability Compose project. Docker Desktop
+      # provides this name already; Linux hosts do not.
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy

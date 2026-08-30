@@ -1,0 +1,54 @@
+# Single-binary Loki on local disk. Sized for one host, not for a cluster.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  retention_period: 168h
+  otlp_config:
+    resource_attributes:
+      # Index exactly the three attributes the application stamps on every
+      # signal, so logs can be selected by environment and by deployed version.
+      # Everything else on the resource, service.instance.id included, stays as
+      # structured metadata: a new id per process restart would otherwise mean a
+      # new stream per restart.
+      ignore_defaults: true
+      attributes_config:
+        - action: index_label
+          attributes:
+            - service.name
+            - deployment.environment.name
+            - service.version
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+
+analytics:
+  reporting_enabled: false
